@@ -15,6 +15,8 @@ const iosBlue = Color(0xFF007AFF);
 const iosGray = Color(0xFF8E8E93);
 const iosGreen = Color(0xFF34C759);
 const iosRedLight = Color(0xFFFFD9D7);
+const iosRed = Color(0xFFFF6B63);
+const calendarFree = Color(0xFFF0F0F3);
 
 enum AppTab { rotina, notas, habitos }
 
@@ -166,6 +168,20 @@ class HabitexStore {
       'habitex.habits',
       habits.map((habit) => habit.toJson()).toList(),
     );
+  }
+
+  Future<void> deleteHabit(String id) async {
+    habits = habits.where((habit) => habit.id != id).toList();
+    habitProgress = habitProgress.map((date, progress) {
+      final nextProgress = Map<String, int>.from(progress)..remove(id);
+      return MapEntry(date, nextProgress);
+    });
+    await _prefs?.setString(
+      'habitex.habits',
+      jsonEncode(habits.map((habit) => habit.toJson()).toList()),
+    );
+    await _prefs?.setString('habitex.habitProgress', jsonEncode(habitProgress));
+    onChanged();
   }
 
   Future<void> updateHabitProgress(Habit habit, int value) async {
@@ -680,6 +696,30 @@ class _HabitosPageState extends State<HabitosPage> {
     );
   }
 
+  Future<bool> confirmDeleteHabit(Habit habit) async {
+    final shouldDelete = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Excluir hábito?'),
+        content: Text(
+          'Isso remove "${habit.name}" do calendário e do check de hoje.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    return shouldDelete == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final todayKey = dateKey(DateTime.now());
@@ -713,14 +753,119 @@ class _HabitosPageState extends State<HabitosPage> {
         HabitWeekCalendar(store: widget.store),
         const SizedBox(height: 16),
         for (final habit in widget.store.habits) ...[
-          HabitCard(
-            habit: habit,
-            value: todayProgress[habit.id] ?? 0,
-            onChange: (value) => widget.store.updateHabitProgress(habit, value),
+          SwipeableHabitCard(
+            key: ValueKey('habit-${habit.id}'),
+            onDelete: () async {
+              if (await confirmDeleteHabit(habit)) {
+                await widget.store.deleteHabit(habit.id);
+              }
+            },
+            child: HabitCard(
+              habit: habit,
+              value: todayProgress[habit.id] ?? 0,
+              onChange: (value) =>
+                  widget.store.updateHabitProgress(habit, value),
+            ),
           ),
           const SizedBox(height: 12),
         ],
       ],
+    );
+  }
+}
+
+class SwipeableHabitCard extends StatefulWidget {
+  const SwipeableHabitCard({
+    super.key,
+    required this.child,
+    required this.onDelete,
+  });
+
+  final Widget child;
+  final Future<void> Function() onDelete;
+
+  @override
+  State<SwipeableHabitCard> createState() => _SwipeableHabitCardState();
+}
+
+class _SwipeableHabitCardState extends State<SwipeableHabitCard> {
+  static const actionWidth = 92.0;
+  double dragOffset = 0;
+
+  bool get isOpen => dragOffset <= -actionWidth / 2;
+
+  void handleDragUpdate(DragUpdateDetails details) {
+    setState(() {
+      dragOffset = (dragOffset + details.delta.dx).clamp(-actionWidth, 0);
+    });
+  }
+
+  void handleDragEnd(DragEndDetails details) {
+    setState(() => dragOffset = isOpen ? -actionWidth : 0);
+  }
+
+  Future<void> handleDelete() async {
+    await widget.onDelete();
+    if (mounted) setState(() => dragOffset = 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        alignment: Alignment.centerRight,
+        children: [
+          Positioned.fill(child: DeleteHabitAction(onPressed: handleDelete)),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(dragOffset, 0, 0),
+            child: GestureDetector(
+              onHorizontalDragUpdate: handleDragUpdate,
+              onHorizontalDragEnd: handleDragEnd,
+              child: widget.child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DeleteHabitAction extends StatelessWidget {
+  const DeleteHabitAction({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: SizedBox(
+        width: _SwipeableHabitCardState.actionWidth,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          color: iosRed,
+          borderRadius: BorderRadius.circular(12),
+          onPressed: onPressed,
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(CupertinoIcons.trash, color: Colors.white, size: 20),
+              SizedBox(height: 4),
+              Text(
+                'Apagar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -882,11 +1027,11 @@ class HabitWeekCalendar extends StatelessWidget {
           const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CalendarLegendDot(color: iosBlue, label: 'Batida'),
+              CalendarLegendDot(color: iosGreen, label: 'Batida'),
               SizedBox(width: 12),
-              CalendarLegendDot(color: Color(0xFFD1D1D6), label: 'Pendente'),
+              CalendarLegendDot(color: iosRed, label: 'Pendente'),
               SizedBox(width: 12),
-              CalendarLegendDot(color: Color(0xFFE6E6EA), label: 'Livre'),
+              CalendarLegendDot(color: calendarFree, label: 'Livre'),
             ],
           ),
         ],
@@ -943,10 +1088,10 @@ class HabitDot extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: active
-            ? iosBlue
+            ? iosGreen
             : scheduled
-            ? const Color(0xFFD1D1D6)
-            : const Color(0xFFE6E6EA),
+            ? iosRed
+            : calendarFree,
       ),
       child: active
           ? const Icon(CupertinoIcons.check_mark, color: Colors.white, size: 14)
@@ -1068,6 +1213,10 @@ class _HabitSheetState extends State<HabitSheet> {
     setState(() => frequency = days);
   }
 
+  void setUnit(String unit) {
+    setState(() => unitController.text = unit);
+  }
+
   @override
   void dispose() {
     iconController.dispose();
@@ -1093,7 +1242,7 @@ class _HabitSheetState extends State<HabitSheet> {
             ? ''
             : unitController.text.trim().isEmpty
             ? 'vezes'
-            : unitController.text.trim(),
+            : normalizeHabitUnit(unitController.text.trim()),
         frequency: frequency.isEmpty
             ? weekDays.map((day) => day.id).toList()
             : frequency,
@@ -1228,6 +1377,29 @@ class _HabitSheetState extends State<HabitSheet> {
                       controller: unitController,
                       fontSize: 20,
                     ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  UnitQuickButton(
+                    label: 'vezes',
+                    onPressed: () => setUnit('vezes'),
+                  ),
+                  UnitQuickButton(
+                    label: 'min',
+                    onPressed: () => setUnit('min'),
+                  ),
+                  UnitQuickButton(
+                    label: 'copos',
+                    onPressed: () => setUnit('copos'),
+                  ),
+                  UnitQuickButton(
+                    label: 'páginas',
+                    onPressed: () => setUnit('páginas'),
                   ),
                 ],
               ),
@@ -1766,6 +1938,36 @@ class FrequencyQuickButton extends StatelessWidget {
   }
 }
 
+class UnitQuickButton extends StatelessWidget {
+  const UnitQuickButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      minimumSize: const Size(32, 32),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      color: iosBg,
+      borderRadius: BorderRadius.circular(16),
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: iosGray,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class RoundIconButton extends StatelessWidget {
   const RoundIconButton({
     super.key,
@@ -1873,6 +2075,13 @@ bool isSameDate(DateTime left, DateTime right) =>
     left.year == right.year &&
     left.month == right.month &&
     left.day == right.day;
+
+String normalizeHabitUnit(String unit) {
+  final normalized = unit.toLowerCase();
+  if (normalized == 'pagina') return 'página';
+  if (normalized == 'paginas') return 'páginas';
+  return unit;
+}
 
 bool isHabitComplete(Habit habit, int value) =>
     habit.isBinary ? value > 0 : value >= habit.goal;
