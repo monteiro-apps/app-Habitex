@@ -9,6 +9,22 @@ void main() {
     expect(normalizeHabitUnit('pagina'), 'página');
   });
 
+  test('Habitex keeps habit step in JSON', () {
+    final habit = Habit.fromJson({
+      'id': 'agua',
+      'icon': '💧',
+      'name': 'Água',
+      'type': 'counter',
+      'goal': 3000,
+      'unit': 'ml',
+      'step': 500,
+      'frequency': ['seg'],
+    });
+
+    expect(habit.step, 500);
+    expect(habit.toJson()['step'], 500);
+  });
+
   testWidgets('Habitex renders the routine tab', (tester) async {
     SharedPreferences.setMockInitialValues({});
 
@@ -46,6 +62,9 @@ void main() {
     expect(find.text('Dias úteis'), findsOneWidget);
     expect(find.text('Fim de semana'), findsOneWidget);
     expect(find.text('páginas'), findsOneWidget);
+    expect(find.text('ml'), findsOneWidget);
+    expect(find.text('+500'), findsOneWidget);
+    expect(find.text('Cada + soma'), findsOneWidget);
   });
 
   testWidgets('Habitex shows delete habit action after swipe', (tester) async {

@@ -252,6 +252,7 @@ class Habit {
     required this.type,
     required this.goal,
     required this.unit,
+    required this.step,
     required this.frequency,
   });
 
@@ -261,6 +262,7 @@ class Habit {
   final String type;
   final int goal;
   final String unit;
+  final int step;
   final List<String> frequency;
 
   bool get isBinary => type == 'binary';
@@ -272,6 +274,7 @@ class Habit {
     'type': type,
     'goal': goal,
     'unit': unit,
+    'step': step,
     'frequency': frequency,
   };
 
@@ -283,6 +286,7 @@ class Habit {
       type: json['type'] as String? ?? 'counter',
       goal: (json['goal'] as num?)?.toInt() ?? 1,
       unit: json['unit'] as String? ?? 'vezes',
+      step: (json['step'] as num?)?.toInt() ?? 1,
       frequency:
           (json['frequency'] as List<dynamic>? ??
                   weekDays.map((day) => day.id).toList())
@@ -315,8 +319,9 @@ List<Habit> defaultHabits() => [
     icon: '💧',
     name: 'Água',
     type: 'counter',
-    goal: 4,
-    unit: 'copos',
+    goal: 3000,
+    unit: 'ml',
+    step: 500,
     frequency: weekDays.map((day) => day.id).toList(),
   ),
   Habit(
@@ -326,6 +331,7 @@ List<Habit> defaultHabits() => [
     type: 'binary',
     goal: 1,
     unit: '',
+    step: 1,
     frequency: weekDays.map((day) => day.id).toList(),
   ),
   const Habit(
@@ -335,6 +341,7 @@ List<Habit> defaultHabits() => [
     type: 'binary',
     goal: 1,
     unit: '',
+    step: 1,
     frequency: ['seg', 'qua', 'sex'],
   ),
   Habit(
@@ -344,6 +351,7 @@ List<Habit> defaultHabits() => [
     type: 'counter',
     goal: 20,
     unit: 'min',
+    step: 5,
     frequency: weekDays.map((day) => day.id).toList(),
   ),
 ];
@@ -1154,6 +1162,17 @@ class HabitCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (!habit.isBinary) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    'Cada + soma ${habit.step} ${habit.unit}',
+                    style: const TextStyle(
+                      color: iosGray,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1177,12 +1196,17 @@ class HabitCard extends StatelessWidget {
               children: [
                 RoundIconButton(
                   icon: CupertinoIcons.minus,
-                  onPressed: () => onChange(value > 0 ? value - 1 : 0),
+                  onPressed: () =>
+                      onChange(value - habit.step > 0 ? value - habit.step : 0),
                 ),
                 const SizedBox(width: 8),
                 RoundIconButton(
                   icon: CupertinoIcons.add,
-                  onPressed: () => onChange(value + 1),
+                  onPressed: () => onChange(
+                    value + habit.step > habit.goal
+                        ? habit.goal
+                        : value + habit.step,
+                  ),
                 ),
               ],
             ),
@@ -1206,6 +1230,7 @@ class _HabitSheetState extends State<HabitSheet> {
   final nameController = TextEditingController();
   final goalController = TextEditingController(text: '1');
   final unitController = TextEditingController(text: 'vezes');
+  final stepController = TextEditingController(text: '1');
   String type = 'counter';
   List<String> frequency = weekDays.map((day) => day.id).toList();
 
@@ -1217,12 +1242,30 @@ class _HabitSheetState extends State<HabitSheet> {
     setState(() => unitController.text = unit);
   }
 
+  void setStep(int step) {
+    setState(() => stepController.text = step.toString());
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    stepController.addListener(refreshPreview);
+    unitController.addListener(refreshPreview);
+  }
+
+  void refreshPreview() {
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    stepController.removeListener(refreshPreview);
+    unitController.removeListener(refreshPreview);
     iconController.dispose();
     nameController.dispose();
     goalController.dispose();
     unitController.dispose();
+    stepController.dispose();
     super.dispose();
   }
 
@@ -1243,6 +1286,7 @@ class _HabitSheetState extends State<HabitSheet> {
             : unitController.text.trim().isEmpty
             ? 'vezes'
             : normalizeHabitUnit(unitController.text.trim()),
+        step: type == 'binary' ? 1 : parsePositiveInt(stepController.text),
         frequency: frequency.isEmpty
             ? weekDays.map((day) => day.id).toList()
             : frequency,
@@ -1373,9 +1417,55 @@ class _HabitSheetState extends State<HabitSheet> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: FieldBox(
+                      label: 'Cada + soma',
+                      controller: stepController,
+                      keyboardType: TextInputType.number,
+                      fontSize: 20,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FieldBox(
                       label: 'Unidade',
                       controller: unitController,
                       fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: IosCard(
+                      color: iosBg,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Prévia',
+                            style: TextStyle(
+                              color: iosGray,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '+${parsePositiveInt(stepController.text)} ${unitController.text.trim().isEmpty ? 'vezes' : normalizeHabitUnit(unitController.text.trim())}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -1393,6 +1483,7 @@ class _HabitSheetState extends State<HabitSheet> {
                     label: 'min',
                     onPressed: () => setUnit('min'),
                   ),
+                  UnitQuickButton(label: 'ml', onPressed: () => setUnit('ml')),
                   UnitQuickButton(
                     label: 'copos',
                     onPressed: () => setUnit('copos'),
@@ -1401,6 +1492,18 @@ class _HabitSheetState extends State<HabitSheet> {
                     label: 'páginas',
                     onPressed: () => setUnit('páginas'),
                   ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  UnitQuickButton(label: '+1', onPressed: () => setStep(1)),
+                  UnitQuickButton(label: '+5', onPressed: () => setStep(5)),
+                  UnitQuickButton(label: '+10', onPressed: () => setStep(10)),
+                  UnitQuickButton(label: '+100', onPressed: () => setStep(100)),
+                  UnitQuickButton(label: '+500', onPressed: () => setStep(500)),
                 ],
               ),
             ],
@@ -2081,6 +2184,11 @@ String normalizeHabitUnit(String unit) {
   if (normalized == 'pagina') return 'página';
   if (normalized == 'paginas') return 'páginas';
   return unit;
+}
+
+int parsePositiveInt(String value) {
+  final parsed = int.tryParse(value.trim()) ?? 1;
+  return parsed > 0 ? parsed : 1;
 }
 
 bool isHabitComplete(Habit habit, int value) =>
