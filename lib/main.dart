@@ -100,12 +100,14 @@ class HabitexStore {
   List<Habit> habits = defaultHabits();
   Map<String, Map<String, int>> habitProgress = {};
   UserProfile profile = const UserProfile();
+  bool darkMode = false;
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromJsonString(_prefs?.getString('habitex.profile'));
+    darkMode = _prefs?.getBool('habitex.darkMode') ?? false;
     final savedSchemaVersion =
         _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
     if (savedSchemaVersion < habitsSchemaVersion) {
@@ -181,6 +183,12 @@ class HabitexStore {
   Future<void> saveProfile(UserProfile nextProfile) async {
     profile = nextProfile;
     await _save('habitex.profile', nextProfile.toJson());
+  }
+
+  Future<void> setDarkMode(bool value) async {
+    darkMode = value;
+    await _prefs?.setBool('habitex.darkMode', value);
+    onChanged();
   }
 
   Future<void> addHabit(Habit habit) async {
@@ -771,6 +779,208 @@ class DadosGeraisDrawer extends StatefulWidget {
 }
 
 class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Drawer(
+        width: MediaQuery.of(context).size.width * 0.85,
+        backgroundColor: iosBg,
+        child: Navigator(
+          onGenerateRoute: (_) => CupertinoPageRoute<void>(
+            builder: (_) => DadosGeraisMenu(store: widget.store),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class DadosGeraisMenu extends StatelessWidget {
+  const DadosGeraisMenu({super.key, required this.store});
+
+  final HabitexStore store;
+
+  void openPage(BuildContext context, Widget page) {
+    Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => page));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: iosBg,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        children: [
+          Row(
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => Scaffold.of(context).closeEndDrawer(),
+                child: const Icon(
+                  CupertinoIcons.xmark,
+                  color: iosGray,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Dados Gerais',
+                style: TextStyle(
+                  color: Color(0xFF0B0B0F),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          IosCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                DadosGeraisTile(
+                  icon: CupertinoIcons.person_fill,
+                  title: 'Perfil',
+                  onTap: () => openPage(context, PerfilPage(store: store)),
+                ),
+                DrawerDivider(),
+                TemaSwitcher(store: store),
+                DrawerDivider(),
+                DadosGeraisTile(
+                  icon: CupertinoIcons.chart_bar_alt_fill,
+                  title: 'Estatísticas',
+                  onTap: () =>
+                      openPage(context, EstatisticasPage(store: store)),
+                ),
+                DrawerDivider(),
+                DadosGeraisTile(
+                  icon: CupertinoIcons.bell_fill,
+                  title: 'Notificações',
+                  onTap: () =>
+                      openPage(context, NotificacoesPage(store: store)),
+                ),
+                DrawerDivider(),
+                DadosGeraisTile(
+                  icon: CupertinoIcons.arrow_down_doc_fill,
+                  title: 'Exportar Dados',
+                  onTap: () => openPage(context, ExportarPage(store: store)),
+                ),
+                DrawerDivider(),
+                DadosGeraisTile(
+                  icon: CupertinoIcons.star_fill,
+                  title: 'Assinatura Premium',
+                  onTap: () => openPage(context, const AssinaturaPage()),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DadosGeraisTile extends StatelessWidget {
+  const DadosGeraisTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            Icon(icon, color: iosBlue, size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF202124),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const Icon(CupertinoIcons.chevron_right, color: iosGray, size: 18),
+            const SizedBox(width: 14),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class TemaSwitcher extends StatelessWidget {
+  const TemaSwitcher({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+          const Icon(CupertinoIcons.moon_fill, color: iosBlue, size: 22),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Text(
+              'Tema',
+              style: TextStyle(
+                color: Color(0xFF202124),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          CupertinoSwitch(
+            value: store.darkMode,
+            activeTrackColor: iosBlue,
+            onChanged: store.setDarkMode,
+          ),
+          const SizedBox(width: 14),
+        ],
+      ),
+    );
+  }
+}
+
+class DrawerDivider extends StatelessWidget {
+  const DrawerDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(left: 52),
+      child: Divider(height: 1, color: Color(0xFFE5E5EA)),
+    );
+  }
+}
+
+class PerfilPage extends StatefulWidget {
+  const PerfilPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  State<PerfilPage> createState() => _PerfilPageState();
+}
+
+class _PerfilPageState extends State<PerfilPage> {
   late final nicknameController = TextEditingController(
     text: widget.store.profile.nickname,
   );
@@ -826,97 +1036,226 @@ class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
       photoBase64: photoBase64,
     );
 
-    return SafeArea(
-      child: Drawer(
-        width: MediaQuery.of(context).size.width * 0.86,
-        backgroundColor: iosBg,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-          children: [
-            Row(
-              children: [
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () => Navigator.pop(context),
-                  child: const Icon(
-                    CupertinoIcons.xmark,
-                    color: iosGray,
-                    size: 22,
-                  ),
-                ),
-                const Spacer(),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: saving ? null : save,
-                  child: Text(
-                    saving ? 'Salvando...' : 'Salvar',
-                    style: const TextStyle(
-                      color: iosBlue,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const HabitexHeader(
-              title: 'Dados Gerais',
-              subtitle: 'Perfil do usuário',
-            ),
-            const SizedBox(height: 20),
-            IosCard(
-              child: Column(
-                children: [
-                  UserAvatar(profile: previewProfile, size: 88),
-                  const SizedBox(height: 12),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: pickPhoto,
-                    child: const Text(
-                      'Escolher foto',
-                      style: TextStyle(
-                        color: iosBlue,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  if (photoBase64 != null)
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () => setState(() => photoBase64 = null),
-                      child: const Text(
-                        'Remover foto',
-                        style: TextStyle(
-                          color: iosRed,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            FieldBox(
-              label: 'Apelido',
-              controller: nicknameController,
-              hint: 'Ex: Jenny',
-              fontSize: 20,
-            ),
-            const SizedBox(height: 14),
-            IosCard(
-              color: iosCard,
-              child: const Text(
-                'Em breve: estatísticas, notificações e exportação.',
-                style: TextStyle(
-                  color: iosGray,
-                  fontWeight: FontWeight.w700,
-                  height: 1.35,
-                ),
-              ),
-            ),
-          ],
+    return DrawerSubPageScaffold(
+      title: 'Perfil',
+      trailing: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: saving ? null : save,
+        child: Text(
+          saving ? 'Salvando...' : 'Salvar',
+          style: const TextStyle(color: iosBlue, fontWeight: FontWeight.w900),
         ),
       ),
+      children: [
+        IosCard(
+          child: Column(
+            children: [
+              UserAvatar(profile: previewProfile, size: 88),
+              const SizedBox(height: 12),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: pickPhoto,
+                child: const Text(
+                  'Escolher foto',
+                  style: TextStyle(color: iosBlue, fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (photoBase64 != null)
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => setState(() => photoBase64 = null),
+                  child: const Text(
+                    'Remover foto',
+                    style: TextStyle(
+                      color: iosRed,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        FieldBox(
+          label: 'Apelido',
+          controller: nicknameController,
+          hint: 'Ex: Jenny',
+          fontSize: 20,
+        ),
+      ],
+    );
+  }
+}
+
+class DrawerSubPageScaffold extends StatelessWidget {
+  const DrawerSubPageScaffold({
+    super.key,
+    required this.title,
+    required this.children,
+    this.trailing,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: iosBg,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        children: [
+          Row(
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => Navigator.pop(context),
+                child: const Icon(
+                  CupertinoIcons.chevron_left,
+                  color: iosGray,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF0B0B0F),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 20),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class EstatisticasPage extends StatelessWidget {
+  const EstatisticasPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalTasks = store.tasksByDay.values.fold<int>(
+      0,
+      (sum, tasks) => sum + tasks.length,
+    );
+
+    return DrawerSubPageScaffold(
+      title: 'Estatísticas',
+      children: [
+        IosCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StatLine(
+                label: 'Hábitos cadastrados',
+                value: '${store.habits.length}',
+              ),
+              const SizedBox(height: 10),
+              StatLine(label: 'Tarefas na rotina', value: '$totalTasks'),
+              const SizedBox(height: 10),
+              StatLine(label: 'Notas criadas', value: '${store.notes.length}'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class NotificacoesPage extends StatelessWidget {
+  const NotificacoesPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return const DrawerSubPageScaffold(
+      title: 'Notificações',
+      children: [
+        IosCard(
+          child: Text(
+            'Em breve voce podera configurar lembretes da rotina e dos habitos.',
+            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ExportarPage extends StatelessWidget {
+  const ExportarPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return const DrawerSubPageScaffold(
+      title: 'Exportar Dados',
+      children: [
+        IosCard(
+          child: Text(
+            'Em breve voce podera exportar rotina, notas e progresso dos habitos.',
+            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class AssinaturaPage extends StatelessWidget {
+  const AssinaturaPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const DrawerSubPageScaffold(
+      title: 'Assinatura Premium',
+      children: [
+        IosCard(
+          child: Text(
+            'Recursos premium serao adicionados em uma proxima versao.',
+            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class StatLine extends StatelessWidget {
+  const StatLine({super.key, required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+        ),
+      ],
     );
   }
 }

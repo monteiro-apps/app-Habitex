@@ -55,6 +55,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Dados Gerais'), findsOneWidget);
+    expect(find.text('Perfil'), findsOneWidget);
+    expect(find.text('Tema'), findsOneWidget);
+    expect(find.text('Estatísticas'), findsOneWidget);
+    expect(find.text('Notificações'), findsOneWidget);
+    expect(find.text('Exportar Dados'), findsOneWidget);
+    expect(find.text('Assinatura Premium'), findsOneWidget);
+
+    await tester.tap(find.text('Perfil'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Apelido'), findsOneWidget);
     expect(find.text('Escolher foto'), findsOneWidget);
   });
