@@ -106,7 +106,7 @@ class HabitexStore {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
-    profile = UserProfile.fromJsonString(_prefs?.getString('habitex.profile'));
+    profile = UserProfile.fromPrefs(_prefs);
     darkMode = _prefs?.getBool('habitex.darkMode') ?? false;
     final savedSchemaVersion =
         _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
@@ -182,7 +182,18 @@ class HabitexStore {
 
   Future<void> saveProfile(UserProfile nextProfile) async {
     profile = nextProfile;
-    await _save('habitex.profile', nextProfile.toJson());
+    await _prefs?.setString('habitex.apelido', nextProfile.nickname);
+    await _prefs?.setString('habitex.email', nextProfile.email);
+    if (nextProfile.photoPath == null || nextProfile.photoPath!.isEmpty) {
+      await _prefs?.remove('habitex.fotoPerfil');
+    } else {
+      await _prefs?.setString('habitex.fotoPerfil', nextProfile.photoPath!);
+    }
+    await _prefs?.setString(
+      'habitex.profile',
+      jsonEncode(nextProfile.toJson()),
+    );
+    onChanged();
   }
 
   Future<void> setDarkMode(bool value) async {
@@ -221,9 +232,16 @@ class HabitexStore {
 }
 
 class UserProfile {
-  const UserProfile({this.nickname = '', this.photoBase64});
+  const UserProfile({
+    this.nickname = '',
+    this.email = '',
+    this.photoPath,
+    this.photoBase64,
+  });
 
   final String nickname;
+  final String email;
+  final String? photoPath;
   final String? photoBase64;
 
   String get displayName =>
@@ -241,23 +259,44 @@ class UserProfile {
     return base64Decode(photo);
   }
 
-  UserProfile copyWith({String? nickname, String? photoBase64}) {
+  UserProfile copyWith({
+    String? nickname,
+    String? email,
+    String? photoPath,
+    String? photoBase64,
+  }) {
     return UserProfile(
       nickname: nickname ?? this.nickname,
+      email: email ?? this.email,
+      photoPath: photoPath ?? this.photoPath,
       photoBase64: photoBase64 ?? this.photoBase64,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'nickname': nickname,
+    'email': email,
+    'photoPath': photoPath,
     'photoBase64': photoBase64,
   };
 
-  static UserProfile fromJsonString(String? value) {
-    if (value == null) return const UserProfile();
-    final decoded = jsonDecode(value) as Map<String, dynamic>;
+  static UserProfile fromPrefs(SharedPreferences? prefs) {
+    final legacy = prefs?.getString('habitex.profile');
+    final decoded = legacy == null
+        ? <String, dynamic>{}
+        : jsonDecode(legacy) as Map<String, dynamic>;
     return UserProfile(
-      nickname: decoded['nickname'] as String? ?? '',
+      nickname:
+          prefs?.getString('habitex.apelido') ??
+          (decoded['nickname'] as String?) ??
+          '',
+      email:
+          prefs?.getString('habitex.email') ??
+          (decoded['email'] as String?) ??
+          '',
+      photoPath:
+          prefs?.getString('habitex.fotoPerfil') ??
+          (decoded['photoPath'] as String?),
       photoBase64: decoded['photoBase64'] as String?,
     );
   }
@@ -984,12 +1023,18 @@ class _PerfilPageState extends State<PerfilPage> {
   late final nicknameController = TextEditingController(
     text: widget.store.profile.nickname,
   );
+  late final emailController = TextEditingController(
+    text: widget.store.profile.email,
+  );
+  final passwordController = TextEditingController();
+  String? photoPath;
   String? photoBase64;
   bool saving = false;
 
   @override
   void initState() {
     super.initState();
+    photoPath = widget.store.profile.photoPath;
     photoBase64 = widget.store.profile.photoBase64;
     nicknameController.addListener(refreshPreview);
   }
@@ -998,6 +1043,8 @@ class _PerfilPageState extends State<PerfilPage> {
   void dispose() {
     nicknameController.removeListener(refreshPreview);
     nicknameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
     super.dispose();
   }
 
@@ -1013,7 +1060,10 @@ class _PerfilPageState extends State<PerfilPage> {
     );
     if (image == null) return;
     final bytes = await image.readAsBytes();
-    setState(() => photoBase64 = base64Encode(bytes));
+    setState(() {
+      photoPath = image.path;
+      photoBase64 = base64Encode(bytes);
+    });
   }
 
   Future<void> save() async {
@@ -1021,18 +1071,28 @@ class _PerfilPageState extends State<PerfilPage> {
     await widget.store.saveProfile(
       UserProfile(
         nickname: nicknameController.text.trim(),
+        email: emailController.text.trim(),
+        photoPath: photoPath,
         photoBase64: photoBase64,
       ),
     );
+    // Senha salva localmente apenas como exemplo de UI.
+    // Em produção, usar autenticação real e armazenamento seguro.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('habitex.senha', passwordController.text);
     if (!mounted) return;
     setState(() => saving = false);
-    Navigator.pop(context);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Perfil atualizado ✓')));
   }
 
   @override
   Widget build(BuildContext context) {
     final previewProfile = UserProfile(
       nickname: nicknameController.text,
+      email: emailController.text,
+      photoPath: photoPath,
       photoBase64: photoBase64,
     );
 
@@ -1047,39 +1107,80 @@ class _PerfilPageState extends State<PerfilPage> {
         ),
       ),
       children: [
-        IosCard(
-          child: Column(
-            children: [
-              UserAvatar(profile: previewProfile, size: 88),
-              const SizedBox(height: 12),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: pickPhoto,
-                child: const Text(
-                  'Escolher foto',
-                  style: TextStyle(color: iosBlue, fontWeight: FontWeight.w800),
-                ),
-              ),
-              if (photoBase64 != null)
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () => setState(() => photoBase64 = null),
-                  child: const Text(
-                    'Remover foto',
-                    style: TextStyle(
-                      color: iosRed,
-                      fontWeight: FontWeight.w800,
+        Center(
+          child: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: pickPhoto,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                UserAvatar(profile: previewProfile, size: 112),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: iosCard,
+                      shape: BoxShape.circle,
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A000000),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      CupertinoIcons.camera_fill,
+                      color: iosBlue,
+                      size: 18,
                     ),
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
+        ),
+        if (photoBase64 != null || photoPath != null) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => setState(() {
+                photoPath = null;
+                photoBase64 = null;
+              }),
+              child: const Text(
+                'Remover foto',
+                style: TextStyle(color: iosRed, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 22),
+        FieldBox(
+          label: 'APELIDO',
+          controller: nicknameController,
+          hint: 'Ex: Jenny',
+          fontSize: 20,
         ),
         const SizedBox(height: 14),
         FieldBox(
-          label: 'Apelido',
-          controller: nicknameController,
-          hint: 'Ex: Jenny',
+          label: 'E-MAIL',
+          controller: emailController,
+          hint: 'voce@email.com',
+          keyboardType: TextInputType.emailAddress,
+          fontSize: 20,
+        ),
+        const SizedBox(height: 14),
+        FieldBox(
+          label: 'SENHA',
+          controller: passwordController,
+          hint: '••••••••',
+          obscureText: true,
           fontSize: 20,
         ),
       ],
@@ -2496,6 +2597,7 @@ class FieldBox extends StatelessWidget {
     this.textAlign = TextAlign.start,
     this.keyboardType,
     this.fontSize = 18,
+    this.obscureText = false,
   });
 
   final String label;
@@ -2504,6 +2606,7 @@ class FieldBox extends StatelessWidget {
   final TextAlign textAlign;
   final TextInputType? keyboardType;
   final double fontSize;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
@@ -2528,6 +2631,7 @@ class FieldBox extends StatelessWidget {
             controller: controller,
             textAlign: textAlign,
             keyboardType: keyboardType,
+            obscureText: obscureText,
             style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w900),
             decoration: InputDecoration(
               border: InputBorder.none,

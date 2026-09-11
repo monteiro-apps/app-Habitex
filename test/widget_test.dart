@@ -65,8 +65,10 @@ void main() {
     await tester.tap(find.text('Perfil'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Apelido'), findsOneWidget);
-    expect(find.text('Escolher foto'), findsOneWidget);
+    expect(find.text('APELIDO'), findsOneWidget);
+    expect(find.text('E-MAIL'), findsOneWidget);
+    expect(find.text('SENHA'), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.camera_fill), findsOneWidget);
   });
 
   testWidgets('Habitex shows habit creation and weekly calendar', (
