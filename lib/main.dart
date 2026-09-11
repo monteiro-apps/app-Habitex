@@ -826,10 +826,10 @@ class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
       photoBase64: photoBase64,
     );
 
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.86,
-      backgroundColor: iosBg,
-      child: SafeArea(
+    return SafeArea(
+      child: Drawer(
+        width: MediaQuery.of(context).size.width * 0.86,
+        backgroundColor: iosBg,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           children: [
