@@ -97,13 +97,15 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -220));
     await tester.pumpAndSettle();
 
+    expect(find.text('Apagar'), findsNothing);
+
     await tester.drag(
       find.byType(SwipeableHabitCard).first,
       const Offset(-120, 0),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Apagar'), findsWidgets);
+    expect(find.text('Apagar'), findsOneWidget);
 
     final habitArea = tester.getRect(find.byType(SwipeableHabitCard).first);
     await tester.tapAt(Offset(habitArea.right - 46, habitArea.center.dy));

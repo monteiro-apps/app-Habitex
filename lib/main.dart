@@ -797,7 +797,8 @@ class _SwipeableHabitCardState extends State<SwipeableHabitCard> {
       child: Stack(
         alignment: Alignment.centerRight,
         children: [
-          Positioned.fill(child: DeleteHabitAction(onPressed: handleDelete)),
+          if (dragOffset < 0)
+            Positioned.fill(child: DeleteHabitAction(onPressed: handleDelete)),
           AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOut,
