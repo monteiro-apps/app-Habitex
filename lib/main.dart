@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -73,6 +75,7 @@ class _HabitexHomeState extends State<HabitexHome> {
     };
 
     return Scaffold(
+      endDrawer: DadosGeraisDrawer(store: store),
       body: SafeArea(
         bottom: false,
         child: loaded
@@ -96,11 +99,13 @@ class HabitexStore {
   List<QuickNote> notes = [];
   List<Habit> habits = defaultHabits();
   Map<String, Map<String, int>> habitProgress = {};
+  UserProfile profile = const UserProfile();
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
+    profile = UserProfile.fromJsonString(_prefs?.getString('habitex.profile'));
     final savedSchemaVersion =
         _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
     if (savedSchemaVersion < habitsSchemaVersion) {
@@ -173,6 +178,11 @@ class HabitexStore {
     await _save('habitex.notes', notes.map((note) => note.toJson()).toList());
   }
 
+  Future<void> saveProfile(UserProfile nextProfile) async {
+    profile = nextProfile;
+    await _save('habitex.profile', nextProfile.toJson());
+  }
+
   Future<void> addHabit(Habit habit) async {
     habits = [...habits, habit];
     await _save(
@@ -199,6 +209,49 @@ class HabitexStore {
     final key = dateKey(DateTime.now());
     habitProgress[key] = {...habitProgress[key] ?? {}, habit.id: value};
     await _save('habitex.habitProgress', habitProgress);
+  }
+}
+
+class UserProfile {
+  const UserProfile({this.nickname = '', this.photoBase64});
+
+  final String nickname;
+  final String? photoBase64;
+
+  String get displayName =>
+      nickname.trim().isEmpty ? 'Habitex' : nickname.trim();
+
+  String get initial {
+    final name = displayName.trim();
+    if (name.isEmpty) return 'H';
+    return name.characters.first.toUpperCase();
+  }
+
+  Uint8List? get photoBytes {
+    final photo = photoBase64;
+    if (photo == null || photo.isEmpty) return null;
+    return base64Decode(photo);
+  }
+
+  UserProfile copyWith({String? nickname, String? photoBase64}) {
+    return UserProfile(
+      nickname: nickname ?? this.nickname,
+      photoBase64: photoBase64 ?? this.photoBase64,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'nickname': nickname,
+    'photoBase64': photoBase64,
+  };
+
+  static UserProfile fromJsonString(String? value) {
+    if (value == null) return const UserProfile();
+    final decoded = jsonDecode(value) as Map<String, dynamic>;
+    return UserProfile(
+      nickname: decoded['nickname'] as String? ?? '',
+      photoBase64: decoded['photoBase64'] as String?,
+    );
   }
 }
 
@@ -380,9 +433,17 @@ class _RotinaPageState extends State<RotinaPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
       children: [
-        HabitexHeader(
-          title: 'Hoje',
-          subtitle: '${tasks.length} tarefas na rotina',
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: HabitexHeader(
+                title: 'Hoje',
+                subtitle: '${tasks.length} tarefas na rotina',
+              ),
+            ),
+            ProfileAvatarButton(profile: widget.store.profile),
+          ],
         ),
         const SizedBox(height: 18),
         SingleChildScrollView(
@@ -651,6 +712,211 @@ class _NotasPageState extends State<NotasPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class ProfileAvatarButton extends StatelessWidget {
+  const ProfileAvatarButton({super.key, required this.profile});
+
+  final UserProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      minimumSize: const Size(34, 34),
+      padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(17),
+      onPressed: () => Scaffold.of(context).openEndDrawer(),
+      child: UserAvatar(profile: profile, size: 34),
+    );
+  }
+}
+
+class UserAvatar extends StatelessWidget {
+  const UserAvatar({super.key, required this.profile, required this.size});
+
+  final UserProfile profile;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final photoBytes = profile.photoBytes;
+
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: iosBlue,
+      backgroundImage: photoBytes == null ? null : MemoryImage(photoBytes),
+      child: photoBytes == null
+          ? Text(
+              profile.initial,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: size * 0.42,
+                fontWeight: FontWeight.w900,
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class DadosGeraisDrawer extends StatefulWidget {
+  const DadosGeraisDrawer({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  State<DadosGeraisDrawer> createState() => _DadosGeraisDrawerState();
+}
+
+class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
+  late final nicknameController = TextEditingController(
+    text: widget.store.profile.nickname,
+  );
+  String? photoBase64;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    photoBase64 = widget.store.profile.photoBase64;
+    nicknameController.addListener(refreshPreview);
+  }
+
+  @override
+  void dispose() {
+    nicknameController.removeListener(refreshPreview);
+    nicknameController.dispose();
+    super.dispose();
+  }
+
+  void refreshPreview() {
+    setState(() {});
+  }
+
+  Future<void> pickPhoto() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      imageQuality: 86,
+    );
+    if (image == null) return;
+    final bytes = await image.readAsBytes();
+    setState(() => photoBase64 = base64Encode(bytes));
+  }
+
+  Future<void> save() async {
+    setState(() => saving = true);
+    await widget.store.saveProfile(
+      UserProfile(
+        nickname: nicknameController.text.trim(),
+        photoBase64: photoBase64,
+      ),
+    );
+    if (!mounted) return;
+    setState(() => saving = false);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final previewProfile = UserProfile(
+      nickname: nicknameController.text,
+      photoBase64: photoBase64,
+    );
+
+    return Drawer(
+      width: MediaQuery.of(context).size.width * 0.86,
+      backgroundColor: iosBg,
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          children: [
+            Row(
+              children: [
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.pop(context),
+                  child: const Icon(
+                    CupertinoIcons.xmark,
+                    color: iosGray,
+                    size: 22,
+                  ),
+                ),
+                const Spacer(),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: saving ? null : save,
+                  child: Text(
+                    saving ? 'Salvando...' : 'Salvar',
+                    style: const TextStyle(
+                      color: iosBlue,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const HabitexHeader(
+              title: 'Dados Gerais',
+              subtitle: 'Perfil do usuário',
+            ),
+            const SizedBox(height: 20),
+            IosCard(
+              child: Column(
+                children: [
+                  UserAvatar(profile: previewProfile, size: 88),
+                  const SizedBox(height: 12),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: pickPhoto,
+                    child: const Text(
+                      'Escolher foto',
+                      style: TextStyle(
+                        color: iosBlue,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  if (photoBase64 != null)
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () => setState(() => photoBase64 = null),
+                      child: const Text(
+                        'Remover foto',
+                        style: TextStyle(
+                          color: iosRed,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            FieldBox(
+              label: 'Apelido',
+              controller: nicknameController,
+              hint: 'Ex: Jenny',
+              fontSize: 20,
+            ),
+            const SizedBox(height: 14),
+            IosCard(
+              color: iosCard,
+              child: const Text(
+                'Em breve: estatísticas, notificações e exportação.',
+                style: TextStyle(
+                  color: iosGray,
+                  fontWeight: FontWeight.w700,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -40,6 +40,25 @@ void main() {
     expect(find.text('Hábitos'), findsOneWidget);
   });
 
+  testWidgets('Habitex opens general data drawer from routine avatar', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'habitex.profile': jsonEncode({'nickname': 'Jenny'}),
+    });
+
+    await tester.pumpWidget(const HabitexApp());
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byType(ProfileAvatarButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dados Gerais'), findsOneWidget);
+    expect(find.text('Apelido'), findsOneWidget);
+    expect(find.text('Escolher foto'), findsOneWidget);
+  });
+
   testWidgets('Habitex shows habit creation and weekly calendar', (
     tester,
   ) async {
