@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habitex/main.dart';
@@ -17,12 +19,12 @@ void main() {
       'type': 'counter',
       'goal': 3000,
       'unit': 'ml',
-      'step': 500,
+      'practiceStep': 500,
       'frequency': ['seg'],
     });
 
     expect(habit.step, 500);
-    expect(habit.toJson()['step'], 500);
+    expect(habit.toJson()['practiceStep'], 500);
   });
 
   testWidgets('Habitex renders the routine tab', (tester) async {
@@ -64,11 +66,26 @@ void main() {
     expect(find.text('páginas'), findsOneWidget);
     expect(find.text('ml'), findsOneWidget);
     expect(find.text('+500'), findsOneWidget);
-    expect(find.text('Cada + soma'), findsOneWidget);
+    expect(find.text('Registro por toque'), findsOneWidget);
   });
 
   testWidgets('Habitex shows delete habit action after swipe', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'habitex.habitsSchemaVersion': habitsSchemaVersion,
+      'habitex.habits': jsonEncode([
+        {
+          'id': 'agua',
+          'icon': '💧',
+          'name': 'Água',
+          'type': 'counter',
+          'goal': 3000,
+          'unit': 'ml',
+          'practiceStep': 500,
+          'frequency': ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
+        },
+      ]),
+      'habitex.habitProgress': jsonEncode({}),
+    });
 
     await tester.pumpWidget(const HabitexApp());
     await tester.pump();

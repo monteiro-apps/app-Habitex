@@ -17,6 +17,7 @@ const iosGreen = Color(0xFF34C759);
 const iosRedLight = Color(0xFFFFD9D7);
 const iosRed = Color(0xFFFF6B63);
 const calendarFree = Color(0xFFF0F0F3);
+const habitsSchemaVersion = 2;
 
 enum AppTab { rotina, notas, habitos }
 
@@ -100,6 +101,16 @@ class HabitexStore {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
+    final savedSchemaVersion =
+        _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
+    if (savedSchemaVersion < habitsSchemaVersion) {
+      habits = [];
+      habitProgress = {};
+      await _prefs?.setString('habitex.habits', jsonEncode([]));
+      await _prefs?.setString('habitex.habitProgress', jsonEncode({}));
+      await _prefs?.setInt('habitex.habitsSchemaVersion', habitsSchemaVersion);
+      return;
+    }
     habits = _decodeHabits(_prefs?.getString('habitex.habits'));
     habitProgress = _decodeProgress(_prefs?.getString('habitex.habitProgress'));
   }
@@ -274,7 +285,7 @@ class Habit {
     'type': type,
     'goal': goal,
     'unit': unit,
-    'step': step,
+    'practiceStep': step,
     'frequency': frequency,
   };
 
@@ -286,7 +297,10 @@ class Habit {
       type: json['type'] as String? ?? 'counter',
       goal: (json['goal'] as num?)?.toInt() ?? 1,
       unit: json['unit'] as String? ?? 'vezes',
-      step: (json['step'] as num?)?.toInt() ?? 1,
+      step:
+          (json['practiceStep'] as num?)?.toInt() ??
+          (json['step'] as num?)?.toInt() ??
+          1,
       frequency:
           (json['frequency'] as List<dynamic>? ??
                   weekDays.map((day) => day.id).toList())
@@ -313,48 +327,7 @@ const weekDays = [
   WeekDay('dom', 'Dom', 'Domingo'),
 ];
 
-List<Habit> defaultHabits() => [
-  Habit(
-    id: 'agua',
-    icon: '💧',
-    name: 'Água',
-    type: 'counter',
-    goal: 3000,
-    unit: 'ml',
-    step: 500,
-    frequency: weekDays.map((day) => day.id).toList(),
-  ),
-  Habit(
-    id: 'remedio',
-    icon: '💊',
-    name: 'Remédio',
-    type: 'binary',
-    goal: 1,
-    unit: '',
-    step: 1,
-    frequency: weekDays.map((day) => day.id).toList(),
-  ),
-  const Habit(
-    id: 'academia',
-    icon: '🏋️',
-    name: 'Academia',
-    type: 'binary',
-    goal: 1,
-    unit: '',
-    step: 1,
-    frequency: ['seg', 'qua', 'sex'],
-  ),
-  Habit(
-    id: 'leitura',
-    icon: '📚',
-    name: 'Leitura',
-    type: 'counter',
-    goal: 20,
-    unit: 'min',
-    step: 5,
-    frequency: weekDays.map((day) => day.id).toList(),
-  ),
-];
+List<Habit> defaultHabits() => [];
 
 class RotinaPage extends StatefulWidget {
   const RotinaPage({super.key, required this.store});
@@ -1165,7 +1138,7 @@ class HabitCard extends StatelessWidget {
                 if (!habit.isBinary) ...[
                   const SizedBox(height: 3),
                   Text(
-                    'Cada + soma ${habit.step} ${habit.unit}',
+                    'Cada toque registra ${habit.step} ${habit.unit}',
                     style: const TextStyle(
                       color: iosGray,
                       fontSize: 12,
@@ -1417,58 +1390,39 @@ class _HabitSheetState extends State<HabitSheet> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: FieldBox(
-                      label: 'Cada + soma',
-                      controller: stepController,
-                      keyboardType: TextInputType.number,
+                      label: 'Unidade',
+                      controller: unitController,
                       fontSize: 20,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: FieldBox(
-                      label: 'Unidade',
-                      controller: unitController,
-                      fontSize: 20,
-                    ),
+              FieldBox(
+                label: 'Registro por toque',
+                controller: stepController,
+                keyboardType: TextInputType.number,
+                fontSize: 20,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: iosBlue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Cada toque no + registra ${parsePositiveInt(stepController.text)} ${unitController.text.trim().isEmpty ? 'vezes' : normalizeHabitUnit(unitController.text.trim())}.',
+                  style: const TextStyle(
+                    color: iosBlue,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: IosCard(
-                      color: iosBg,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Prévia',
-                            style: TextStyle(
-                              color: iosGray,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '+${parsePositiveInt(stepController.text)} ${unitController.text.trim().isEmpty ? 'vezes' : normalizeHabitUnit(unitController.text.trim())}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
