@@ -700,7 +700,7 @@ class _HabitosPageState extends State<HabitosPage> {
               Icon(CupertinoIcons.add, color: Colors.white, size: 20),
               SizedBox(width: 8),
               Text(
-                'Novo hábito',
+                'Criar novo hábito',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
@@ -733,66 +733,197 @@ class HabitWeekCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final week = currentWeekDates(DateTime.now());
-    final visibleHabits = store.habits.take(4).toList();
+    final scheduledGoals = weeklyScheduledGoals(store.habits, week);
+    final completedGoals = weeklyCompletedGoals(store, week);
+    final completion = scheduledGoals == 0
+        ? 0
+        : ((completedGoals / scheduledGoals) * 100).round();
 
     return IosCard(
-      borderRadius: 28,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      borderRadius: 18,
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const SizedBox(width: 116),
-              for (final day in weekDays)
+              const Expanded(
+                child: Text(
+                  'Calendário semanal',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: iosBlue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$completion%',
+                  style: const TextStyle(
+                    color: iosBlue,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$completedGoals de $scheduledGoals metas batidas nesta semana',
+            style: const TextStyle(color: iosGray, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const SizedBox(width: 104),
+              for (final date in week)
                 Expanded(
-                  child: Text(
-                    day.short,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFF5F6368),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Column(
+                    children: [
+                      Text(
+                        weekDays[date.weekday - 1].short,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFF5F6368),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Container(
+                        width: 28,
+                        height: 28,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isSameDate(date, DateTime.now())
+                              ? iosBlue
+                              : iosBg,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          '${date.day}',
+                          style: TextStyle(
+                            color: isSameDate(date, DateTime.now())
+                                ? Colors.white
+                                : const Color(0xFF3A3A40),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 18),
-          for (final habit in visibleHabits)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 116,
-                    child: Text(
-                      habit.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF202124),
+          const SizedBox(height: 14),
+          if (store.habits.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  'Crie seu primeiro hábito para ver a semana.',
+                  style: TextStyle(color: iosGray),
+                ),
+              ),
+            )
+          else
+            for (final habit in store.habits)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 104,
+                      child: Row(
+                        children: [
+                          Text(
+                            habit.icon,
+                            style: const TextStyle(fontSize: 18),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              habit.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF202124),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  for (final date in week)
-                    Expanded(
-                      child: Center(
-                        child: HabitDot(
-                          active: isHabitComplete(
-                            habit,
-                            store.habitProgress[dateKey(date)]?[habit.id] ?? 0,
+                    for (final date in week)
+                      Expanded(
+                        child: Center(
+                          child: HabitDot(
+                            active: isHabitComplete(
+                              habit,
+                              store.habitProgress[dateKey(date)]?[habit.id] ??
+                                  0,
+                            ),
+                            scheduled: habit.frequency.contains(dayId(date)),
                           ),
-                          scheduled: habit.frequency.contains(dayId(date)),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
+          const Divider(height: 14),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CalendarLegendDot(color: iosBlue, label: 'Batida'),
+              SizedBox(width: 12),
+              CalendarLegendDot(color: Color(0xFFD1D1D6), label: 'Pendente'),
+              SizedBox(width: 12),
+              CalendarLegendDot(color: Color(0xFFE6E6EA), label: 'Livre'),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+class CalendarLegendDot extends StatelessWidget {
+  const CalendarLegendDot({
+    super.key,
+    required this.color,
+    required this.label,
+  });
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            color: iosGray,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -807,8 +938,8 @@ class HabitDot extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
-      width: 22,
-      height: 22,
+      width: 24,
+      height: 24,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: active
@@ -817,6 +948,9 @@ class HabitDot extends StatelessWidget {
             ? const Color(0xFFD1D1D6)
             : const Color(0xFFE6E6EA),
       ),
+      child: active
+          ? const Icon(CupertinoIcons.check_mark, color: Colors.white, size: 14)
+          : null,
     );
   }
 }
@@ -930,6 +1064,10 @@ class _HabitSheetState extends State<HabitSheet> {
   String type = 'counter';
   List<String> frequency = weekDays.map((day) => day.id).toList();
 
+  void setFrequency(List<String> days) {
+    setState(() => frequency = days);
+  }
+
   @override
   void dispose() {
     iconController.dispose();
@@ -1013,6 +1151,15 @@ class _HabitSheetState extends State<HabitSheet> {
                 ),
               ],
             ),
+            const Text(
+              'Novo hábito',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Defina nome, ícone, frequência e meta.',
+              style: TextStyle(color: iosGray, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -1047,7 +1194,7 @@ class _HabitSheetState extends State<HabitSheet> {
                 children: [
                   Expanded(
                     child: SheetSegment(
-                      label: 'Contador',
+                      label: 'Quantidade',
                       selected: type == 'counter',
                       onTap: () => setState(() => type = 'counter'),
                     ),
@@ -1068,7 +1215,7 @@ class _HabitSheetState extends State<HabitSheet> {
                 children: [
                   Expanded(
                     child: FieldBox(
-                      label: 'Quantidade',
+                      label: 'Meta',
                       controller: goalController,
                       keyboardType: TextInputType.number,
                       fontSize: 20,
@@ -1098,6 +1245,28 @@ class _HabitSheetState extends State<HabitSheet> {
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FrequencyQuickButton(
+                        label: 'Todos',
+                        onPressed: () => setFrequency(
+                          weekDays.map((day) => day.id).toList(),
+                        ),
+                      ),
+                      FrequencyQuickButton(
+                        label: 'Dias úteis',
+                        onPressed: () =>
+                            setFrequency(['seg', 'ter', 'qua', 'qui', 'sex']),
+                      ),
+                      FrequencyQuickButton(
+                        label: 'Fim de semana',
+                        onPressed: () => setFrequency(['sab', 'dom']),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -1567,6 +1736,36 @@ class SheetSegment extends StatelessWidget {
   }
 }
 
+class FrequencyQuickButton extends StatelessWidget {
+  const FrequencyQuickButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      minimumSize: const Size(32, 32),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      color: iosCard,
+      borderRadius: BorderRadius.circular(16),
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: iosGray,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class RoundIconButton extends StatelessWidget {
   const RoundIconButton({
     super.key,
@@ -1647,6 +1846,33 @@ List<DateTime> currentWeekDates(DateTime date) {
   ).subtract(Duration(days: date.weekday - 1));
   return List.generate(7, (index) => start.add(Duration(days: index)));
 }
+
+int weeklyScheduledGoals(List<Habit> habits, List<DateTime> week) {
+  var total = 0;
+  for (final habit in habits) {
+    for (final date in week) {
+      if (habit.frequency.contains(dayId(date))) total++;
+    }
+  }
+  return total;
+}
+
+int weeklyCompletedGoals(HabitexStore store, List<DateTime> week) {
+  var total = 0;
+  for (final habit in store.habits) {
+    for (final date in week) {
+      if (!habit.frequency.contains(dayId(date))) continue;
+      final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
+      if (isHabitComplete(habit, value)) total++;
+    }
+  }
+  return total;
+}
+
+bool isSameDate(DateTime left, DateTime right) =>
+    left.year == right.year &&
+    left.month == right.month &&
+    left.day == right.day;
 
 bool isHabitComplete(Habit habit, int value) =>
     habit.isBinary ? value > 0 : value >= habit.goal;
