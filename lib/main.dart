@@ -1557,6 +1557,7 @@ class StreakCard extends StatelessWidget {
                   for (final streak in others.take(3))
                     Expanded(
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             streak.habit.icon,
@@ -1564,11 +1565,23 @@ class StreakCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${streak.days}d',
+                            '${streak.days}${streak.days == 1 ? ' dia' : 'd'}',
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                               color: iosBlue,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            streak.habit.name.length > 7
+                                ? '${streak.habit.name.substring(0, 7)}…'
+                                : streak.habit.name,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
