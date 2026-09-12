@@ -23,34 +23,14 @@ const habitsSchemaVersion = 2;
 
 enum AppTab { rotina, notas, habitos }
 
-class HabitexApp extends StatelessWidget {
+class HabitexApp extends StatefulWidget {
   const HabitexApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Habitex',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: iosBg,
-        fontFamily: '.SF Pro Text',
-        colorScheme: ColorScheme.fromSeed(seedColor: iosBlue, surface: iosCard),
-      ),
-      home: const HabitexHome(),
-    );
-  }
+  State<HabitexApp> createState() => _HabitexAppState();
 }
 
-class HabitexHome extends StatefulWidget {
-  const HabitexHome({super.key});
-
-  @override
-  State<HabitexHome> createState() => _HabitexHomeState();
-}
-
-class _HabitexHomeState extends State<HabitexHome> {
-  AppTab currentTab = AppTab.rotina;
+class _HabitexAppState extends State<HabitexApp> {
   late final HabitexStore store;
   bool loaded = false;
 
@@ -68,6 +48,48 @@ class _HabitexHomeState extends State<HabitexHome> {
 
   @override
   Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Habitex',
+      themeMode: store.themeMode,
+      theme: ThemeData(
+        useMaterial3: true,
+        scaffoldBackgroundColor: iosBg,
+        fontFamily: '.SF Pro Text',
+        colorScheme: ColorScheme.fromSeed(seedColor: iosBlue, surface: iosCard),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF1C1C1E),
+        fontFamily: '.SF Pro Text',
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: iosBlue,
+          brightness: Brightness.dark,
+          surface: const Color(0xFF2C2C2E),
+        ),
+      ),
+      home: HabitexHome(store: store, loaded: loaded),
+    );
+  }
+}
+
+class HabitexHome extends StatefulWidget {
+  const HabitexHome({super.key, required this.store, required this.loaded});
+
+  final HabitexStore store;
+  final bool loaded;
+
+  @override
+  State<HabitexHome> createState() => _HabitexHomeState();
+}
+
+class _HabitexHomeState extends State<HabitexHome> {
+  AppTab currentTab = AppTab.rotina;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = widget.store;
     final page = switch (currentTab) {
       AppTab.rotina => RotinaPage(store: store),
       AppTab.notas => NotasPage(store: store),
@@ -78,7 +100,7 @@ class _HabitexHomeState extends State<HabitexHome> {
       endDrawer: DadosGeraisDrawer(store: store),
       body: SafeArea(
         bottom: false,
-        child: loaded
+        child: widget.loaded
             ? page
             : const Center(child: CupertinoActivityIndicator(color: iosBlue)),
       ),
@@ -100,14 +122,14 @@ class HabitexStore {
   List<Habit> habits = defaultHabits();
   Map<String, Map<String, int>> habitProgress = {};
   UserProfile profile = const UserProfile();
-  bool darkMode = false;
+  ThemeMode themeMode = ThemeMode.light;
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromPrefs(_prefs);
-    darkMode = _prefs?.getBool('habitex.darkMode') ?? false;
+    themeMode = themeModeFromString(_prefs?.getString('habitex.themeMode'));
     final savedSchemaVersion =
         _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
     if (savedSchemaVersion < habitsSchemaVersion) {
@@ -197,8 +219,8 @@ class HabitexStore {
   }
 
   Future<void> setDarkMode(bool value) async {
-    darkMode = value;
-    await _prefs?.setBool('habitex.darkMode', value);
+    themeMode = value ? ThemeMode.dark : ThemeMode.light;
+    await _prefs?.setString('habitex.themeMode', themeModeToString(themeMode));
     onChanged();
   }
 
@@ -969,6 +991,8 @@ class TemaSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = store.themeMode == ThemeMode.dark;
+
     return SizedBox(
       height: 56,
       child: Row(
@@ -976,10 +1000,10 @@ class TemaSwitcher extends StatelessWidget {
           const SizedBox(width: 16),
           const Icon(CupertinoIcons.moon_fill, color: iosBlue, size: 22),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Tema',
-              style: TextStyle(
+              isDark ? 'Modo Escuro' : 'Modo Claro',
+              style: const TextStyle(
                 color: Color(0xFF202124),
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
@@ -987,7 +1011,7 @@ class TemaSwitcher extends StatelessWidget {
             ),
           ),
           CupertinoSwitch(
-            value: store.darkMode,
+            value: isDark,
             activeTrackColor: iosBlue,
             onChanged: store.setDarkMode,
           ),
@@ -2853,6 +2877,22 @@ String normalizeHabitUnit(String unit) {
 int parsePositiveInt(String value) {
   final parsed = int.tryParse(value.trim()) ?? 1;
   return parsed > 0 ? parsed : 1;
+}
+
+ThemeMode themeModeFromString(String? value) {
+  return switch (value) {
+    'dark' => ThemeMode.dark,
+    'system' => ThemeMode.system,
+    _ => ThemeMode.light,
+  };
+}
+
+String themeModeToString(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.dark => 'dark',
+    ThemeMode.system => 'system',
+    ThemeMode.light => 'light',
+  };
 }
 
 bool isHabitComplete(Habit habit, int value) =>

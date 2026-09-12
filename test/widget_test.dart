@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habitex/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +26,12 @@ void main() {
 
     expect(habit.step, 500);
     expect(habit.toJson()['practiceStep'], 500);
+  });
+
+  test('Habitex parses persisted theme mode', () {
+    expect(themeModeFromString('light'), ThemeMode.light);
+    expect(themeModeFromString('dark'), ThemeMode.dark);
+    expect(themeModeFromString('system'), ThemeMode.system);
   });
 
   testWidgets('Habitex renders the routine tab', (tester) async {
@@ -56,7 +63,7 @@ void main() {
 
     expect(find.text('Dados Gerais'), findsOneWidget);
     expect(find.text('Perfil'), findsOneWidget);
-    expect(find.text('Tema'), findsOneWidget);
+    expect(find.text('Modo Claro'), findsOneWidget);
     expect(find.text('Estatísticas'), findsOneWidget);
     expect(find.text('Notificações'), findsOneWidget);
     expect(find.text('Exportar Dados'), findsOneWidget);
