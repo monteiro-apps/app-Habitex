@@ -1511,7 +1511,7 @@ class StreakCard extends StatelessWidget {
               children: [
                 Text(
                   bestStreak.habit.icon,
-                  style: const TextStyle(fontSize: 24),
+                  style: const TextStyle(fontSize: 22),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1520,8 +1520,8 @@ class StreakCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
                       color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
@@ -1533,18 +1533,14 @@ class StreakCard extends StatelessWidget {
                       TextSpan(
                         text: '${bestStreak.days}',
                         style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
                           color: iosBlue,
                         ),
                       ),
                       TextSpan(
                         text: ' ${bestStreak.days == 1 ? 'dia' : 'dias'}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: const TextStyle(fontSize: 13, color: iosGray),
                       ),
                     ],
                   ),
@@ -1611,8 +1607,8 @@ class StreakSecondaryRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
@@ -1628,16 +1624,12 @@ class StreakSecondaryRow extends StatelessWidget {
                 style: const TextStyle(
                   color: iosBlue,
                   fontSize: 24,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               TextSpan(
                 text: ' ${streak.days == 1 ? 'dia' : 'dias'}',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: const TextStyle(color: iosGray, fontSize: 13),
               ),
             ],
           ),
