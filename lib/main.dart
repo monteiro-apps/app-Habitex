@@ -1560,41 +1560,15 @@ class StreakCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                mainAxisAlignment: others.length == 1
+                    ? MainAxisAlignment.start
+                    : MainAxisAlignment.spaceAround,
                 children: [
                   for (final streak in others.take(3))
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            streak.habit.icon,
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${streak.days}${streak.days == 1 ? ' dia' : 'd'}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: iosBlue,
-                            ),
-                          ),
-                          const SizedBox(height: 1),
-                          Text(
-                            streak.habit.name.length > 7
-                                ? '${streak.habit.name.substring(0, 7)}…'
-                                : streak.habit.name,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    if (others.length == 1)
+                      SizedBox(width: 72, child: StreakMiniCard(streak: streak))
+                    else
+                      Expanded(child: StreakMiniCard(streak: streak)),
                 ],
               ),
             ],
@@ -1613,6 +1587,41 @@ class StreakCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class StreakMiniCard extends StatelessWidget {
+  const StreakMiniCard({super.key, required this.streak});
+
+  final HabitStreak streak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(streak.habit.icon, style: const TextStyle(fontSize: 16)),
+        const SizedBox(height: 2),
+        Text(
+          '${streak.days}${streak.days == 1 ? ' dia' : 'd'}',
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: iosBlue,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          streak.habit.name.length > 7
+              ? '${streak.habit.name.substring(0, 7)}…'
+              : streak.habit.name,
+          style: TextStyle(
+            fontSize: 10,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }
