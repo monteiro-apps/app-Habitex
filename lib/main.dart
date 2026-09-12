@@ -5,10 +5,23 @@ import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
-void main() {
+final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tzdata.initializeTimeZones();
+  await flutterLocalNotificationsPlugin.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+  );
   runApp(const HabitexApp());
 }
 
@@ -146,6 +159,10 @@ class HabitexStore {
   Map<String, Map<String, int>> habitProgress = {};
   UserProfile profile = const UserProfile();
   ThemeMode themeMode = ThemeMode.light;
+  bool notifRotina = false;
+  String notifRotinaHora = '08:00';
+  Map<String, bool> notifHabitos = {};
+  Map<String, List<String>> notifHabitoHoras = {};
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -153,6 +170,8 @@ class HabitexStore {
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromPrefs(_prefs);
     themeMode = themeModeFromString(_prefs?.getString('habitex.themeMode'));
+    notifRotina = _prefs?.getBool('habitex.notifRotina') ?? false;
+    notifRotinaHora = _prefs?.getString('habitex.notifRotinaHora') ?? '08:00';
     final savedSchemaVersion =
         _prefs?.getInt('habitex.habitsSchemaVersion') ?? 1;
     if (savedSchemaVersion < habitsSchemaVersion) {
@@ -165,6 +184,16 @@ class HabitexStore {
     }
     habits = _decodeHabits(_prefs?.getString('habitex.habits'));
     habitProgress = _decodeProgress(_prefs?.getString('habitex.habitProgress'));
+    notifHabitos = {
+      for (final habit in habits)
+        habit.id: _prefs?.getBool('habitex.notifHabito_${habit.id}') ?? false,
+    };
+    notifHabitoHoras = {
+      for (final habit in habits)
+        habit.id: _decodeStringList(
+          _prefs?.getString('habitex.notifHabitoHoras_${habit.id}'),
+        ),
+    };
   }
 
   Future<void> _save(String key, Object value) async {
@@ -248,6 +277,36 @@ class HabitexStore {
   Future<void> setThemeMode(ThemeMode mode) async {
     themeMode = mode;
     await _prefs?.setString('habitex.themeMode', themeModeToString(themeMode));
+    onChanged();
+  }
+
+  Future<void> setRoutineNotification(bool enabled) async {
+    notifRotina = enabled;
+    await _prefs?.setBool('habitex.notifRotina', enabled);
+    onChanged();
+  }
+
+  Future<void> setRoutineNotificationTime(String time) async {
+    notifRotinaHora = time;
+    await _prefs?.setString('habitex.notifRotinaHora', time);
+    onChanged();
+  }
+
+  Future<void> setHabitNotification(String habitId, bool enabled) async {
+    notifHabitos = {...notifHabitos, habitId: enabled};
+    await _prefs?.setBool('habitex.notifHabito_$habitId', enabled);
+    onChanged();
+  }
+
+  Future<void> setHabitNotificationHours(
+    String habitId,
+    List<String> hours,
+  ) async {
+    notifHabitoHoras = {...notifHabitoHoras, habitId: hours};
+    await _prefs?.setString(
+      'habitex.notifHabitoHoras_$habitId',
+      jsonEncode(hours),
+    );
     onChanged();
   }
 
@@ -1942,10 +2001,98 @@ class HabitRateCard extends StatelessWidget {
   }
 }
 
-class NotificacoesPage extends StatelessWidget {
+class NotificacoesPage extends StatefulWidget {
   const NotificacoesPage({super.key, required this.store});
 
   final HabitexStore store;
+
+  @override
+  State<NotificacoesPage> createState() => _NotificacoesPageState();
+}
+
+class _NotificacoesPageState extends State<NotificacoesPage> {
+  @override
+  void initState() {
+    super.initState();
+    requestNotificationPermission();
+  }
+
+  Future<void> requestNotificationPermission() async {
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+  }
+
+  int get pendingTasksToday {
+    final tasks = widget.store.tasksByDay[dayId(DateTime.now())] ?? [];
+    return tasks.where((task) => !task.done).length;
+  }
+
+  Future<void> toggleRoutine(bool enabled) async {
+    await widget.store.setRoutineNotification(enabled);
+    if (!enabled) {
+      await flutterLocalNotificationsPlugin.cancel(0);
+      return;
+    }
+    await agendarNotifRotina(
+      timeOfDayFromString(widget.store.notifRotinaHora),
+      pendingTasksToday,
+    );
+  }
+
+  Future<void> pickRoutineTime() async {
+    final picked = await pickNotificationTime(
+      context,
+      timeOfDayFromString(widget.store.notifRotinaHora),
+    );
+    if (picked == null) return;
+    final value = timeOfDayToString(picked);
+    await widget.store.setRoutineNotificationTime(value);
+    if (widget.store.notifRotina) {
+      await agendarNotifRotina(picked, pendingTasksToday);
+    }
+  }
+
+  Future<void> toggleHabit(Habit habit, bool enabled) async {
+    await widget.store.setHabitNotification(habit.id, enabled);
+    if (!enabled) {
+      await cancelarNotifsHabito(habit);
+      return;
+    }
+    var hours = widget.store.notifHabitoHoras[habit.id] ?? [];
+    if (hours.isEmpty) {
+      hours = ['08:00'];
+      await widget.store.setHabitNotificationHours(habit.id, hours);
+    }
+    await reagendarNotifsHabito(habit, hours);
+  }
+
+  Future<void> addHabitTime(Habit habit) async {
+    final currentHours = widget.store.notifHabitoHoras[habit.id] ?? [];
+    if (currentHours.length >= 3) return;
+    final initial = currentHours.isEmpty
+        ? const TimeOfDay(hour: 8, minute: 0)
+        : timeOfDayFromString(currentHours.last);
+    final picked = await pickNotificationTime(context, initial);
+    if (picked == null) return;
+    final nextHours = [...currentHours, timeOfDayToString(picked)];
+    await widget.store.setHabitNotificationHours(habit.id, nextHours);
+    if (widget.store.notifHabitos[habit.id] ?? false) {
+      await reagendarNotifsHabito(habit, nextHours);
+    }
+  }
+
+  Future<void> removeHabitTime(Habit habit, String hour) async {
+    final nextHours = (widget.store.notifHabitoHoras[habit.id] ?? [])
+        .where((item) => item != hour)
+        .toList();
+    await widget.store.setHabitNotificationHours(habit.id, nextHours);
+    if (widget.store.notifHabitos[habit.id] ?? false) {
+      await reagendarNotifsHabito(habit, nextHours);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1953,16 +2100,485 @@ class NotificacoesPage extends StatelessWidget {
       title: 'Notificações',
       children: [
         IosCard(
-          child: Text(
-            'Em breve voce podera configurar lembretes da rotina e dos habitos.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              NotificationSectionHeader(
+                title: 'Lembrete de Tarefas',
+                description:
+                    'Receba um aviso diário com suas tarefas pendentes',
+                value: widget.store.notifRotina,
+                onChanged: toggleRoutine,
+              ),
+              if (widget.store.notifRotina) ...[
+                const SizedBox(height: 12),
+                NotificationTimeButton(
+                  label: 'Horário',
+                  value: widget.store.notifRotinaHora,
+                  onPressed: pickRoutineTime,
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Lembretes por Hábito',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Configure horários individuais para cada hábito',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (widget.store.habits.isEmpty)
+          IosCard(
+            child: Text(
+              'Cadastre hábitos para configurar lembretes.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          for (final habit in widget.store.habits) ...[
+            HabitNotificationCard(
+              habit: habit,
+              enabled: widget.store.notifHabitos[habit.id] ?? false,
+              hours: widget.store.notifHabitoHoras[habit.id] ?? [],
+              onToggle: (value) => toggleHabit(habit, value),
+              onAddTime: () => addHabitTime(habit),
+              onRemoveTime: (hour) => removeHabitTime(habit, hour),
+            ),
+            const SizedBox(height: 10),
+          ],
+      ],
+    );
+  }
+}
+
+class NotificationSectionHeader extends StatelessWidget {
+  const NotificationSectionHeader({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String description;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
+        CupertinoSwitch(
+          value: value,
+          activeTrackColor: iosBlue,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+class NotificationTimeButton extends StatelessWidget {
+  const NotificationTimeButton({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(12),
+      onPressed: onPressed,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+class HabitNotificationCard extends StatelessWidget {
+  const HabitNotificationCard({
+    super.key,
+    required this.habit,
+    required this.enabled,
+    required this.hours,
+    required this.onToggle,
+    required this.onAddTime,
+    required this.onRemoveTime,
+  });
+
+  final Habit habit;
+  final bool enabled;
+  final List<String> hours;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onAddTime;
+  final ValueChanged<String> onRemoveTime;
+
+  @override
+  Widget build(BuildContext context) {
+    return IosCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(habit.icon, style: const TextStyle(fontSize: 24)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  habit.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              CupertinoSwitch(
+                value: enabled,
+                activeTrackColor: iosBlue,
+                onChanged: onToggle,
+              ),
+            ],
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final hour in hours)
+                  NotificationHourChip(
+                    hour: hour,
+                    onRemove: () => onRemoveTime(hour),
+                  ),
+                if (hours.length < 3)
+                  CupertinoButton(
+                    minimumSize: const Size(34, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(17),
+                    onPressed: onAddTime,
+                    child: const Text(
+                      '＋ Adicionar horário',
+                      style: TextStyle(
+                        color: iosBlue,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class NotificationHourChip extends StatelessWidget {
+  const NotificationHourChip({
+    super.key,
+    required this.hour,
+    required this.onRemove,
+  });
+
+  final String hour;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+        color: iosBlue.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            hour,
+            style: const TextStyle(
+              color: iosBlue,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          CupertinoButton(
+            minimumSize: const Size(30, 30),
+            padding: EdgeInsets.zero,
+            onPressed: onRemove,
+            child: const Icon(CupertinoIcons.xmark, color: iosBlue, size: 14),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<TimeOfDay?> pickNotificationTime(
+  BuildContext context,
+  TimeOfDay initial,
+) async {
+  var selected = initial;
+  return showCupertinoModalPopup<TimeOfDay>(
+    context: context,
+    builder: (context) {
+      return Container(
+        height: 280,
+        color: Theme.of(context).colorScheme.surface,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 44,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Cancelar',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    onPressed: () => Navigator.pop(context, selected),
+                    child: const Text(
+                      'Salvar',
+                      style: TextStyle(
+                        color: iosBlue,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: DateTime(
+                  2024,
+                  1,
+                  1,
+                  initial.hour,
+                  initial.minute,
+                ),
+                use24hFormat: true,
+                onDateTimeChanged: (date) {
+                  selected = TimeOfDay(hour: date.hour, minute: date.minute);
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+TimeOfDay timeOfDayFromString(String value) {
+  final parts = value.split(':');
+  return TimeOfDay(
+    hour: int.tryParse(parts.first) ?? 8,
+    minute: parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0,
+  );
+}
+
+String timeOfDayToString(TimeOfDay time) {
+  final hour = time.hour.toString().padLeft(2, '0');
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+tz.TZDateTime _proximoHorario(TimeOfDay time) {
+  final now = tz.TZDateTime.now(tz.local);
+  var scheduled = tz.TZDateTime(
+    tz.local,
+    now.year,
+    now.month,
+    now.day,
+    time.hour,
+    time.minute,
+  );
+  if (!scheduled.isAfter(now)) {
+    scheduled = scheduled.add(const Duration(days: 1));
+  }
+  return scheduled;
+}
+
+tz.TZDateTime _proximoHorarioSemanal(String weekdayId, TimeOfDay time) {
+  final targetWeekday = weekdayNumberFromId(weekdayId);
+  final now = tz.TZDateTime.now(tz.local);
+  var scheduled = tz.TZDateTime(
+    tz.local,
+    now.year,
+    now.month,
+    now.day,
+    time.hour,
+    time.minute,
+  );
+  while (scheduled.weekday != targetWeekday || !scheduled.isAfter(now)) {
+    scheduled = scheduled.add(const Duration(days: 1));
+  }
+  return scheduled;
+}
+
+int weekdayNumberFromId(String weekdayId) {
+  return switch (weekdayId) {
+    'seg' => DateTime.monday,
+    'ter' => DateTime.tuesday,
+    'qua' => DateTime.wednesday,
+    'qui' => DateTime.thursday,
+    'sex' => DateTime.friday,
+    'sab' => DateTime.saturday,
+    'dom' => DateTime.sunday,
+    _ => DateTime.monday,
+  };
+}
+
+int habitNotificationId(String habitId, int hourIndex, String weekdayId) {
+  final base = habitId.hashCode.abs() % 100000;
+  return 1000 + (base * 21) + (hourIndex * 7) + weekdayNumberFromId(weekdayId);
+}
+
+Future<void> agendarNotifRotina(TimeOfDay hora, int pendentes) async {
+  await flutterLocalNotificationsPlugin.zonedSchedule(
+    0,
+    'HABITEX',
+    'Você tem $pendentes tarefas pendentes hoje 📋',
+    _proximoHorario(hora),
+    const NotificationDetails(
+      iOS: DarwinNotificationDetails(),
+      android: AndroidNotificationDetails('rotina', 'Rotina'),
+    ),
+    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    uiLocalNotificationDateInterpretation:
+        UILocalNotificationDateInterpretation.absoluteTime,
+    matchDateTimeComponents: DateTimeComponents.time,
+  );
+}
+
+Future<void> agendarNotifHabito(
+  Habit habit,
+  TimeOfDay hora,
+  int notifId,
+  String weekdayId,
+) async {
+  await flutterLocalNotificationsPlugin.zonedSchedule(
+    notifId,
+    'HABITEX',
+    'Hora de praticar ${habit.name} ${habit.icon}',
+    _proximoHorarioSemanal(weekdayId, hora),
+    const NotificationDetails(
+      iOS: DarwinNotificationDetails(),
+      android: AndroidNotificationDetails('habitos', 'Hábitos'),
+    ),
+    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    uiLocalNotificationDateInterpretation:
+        UILocalNotificationDateInterpretation.absoluteTime,
+    matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+  );
+}
+
+Future<void> cancelarNotifsHabito(Habit habit) async {
+  for (var hourIndex = 0; hourIndex < 3; hourIndex++) {
+    for (final weekday in weekDays.map((day) => day.id)) {
+      await flutterLocalNotificationsPlugin.cancel(
+        habitNotificationId(habit.id, hourIndex, weekday),
+      );
+    }
+  }
+}
+
+Future<void> reagendarNotifsHabito(Habit habit, List<String> hours) async {
+  await cancelarNotifsHabito(habit);
+  for (var hourIndex = 0; hourIndex < hours.length; hourIndex++) {
+    final hour = timeOfDayFromString(hours[hourIndex]);
+    for (final weekday in habit.frequency) {
+      await agendarNotifHabito(
+        habit,
+        hour,
+        habitNotificationId(habit.id, hourIndex, weekday),
+        weekday,
+      );
+    }
   }
 }
 
@@ -3524,6 +4140,13 @@ Map<String, Map<String, int>> _decodeProgress(String? value) {
       ),
     ),
   );
+}
+
+List<String> _decodeStringList(String? value) {
+  if (value == null) return [];
+  return (jsonDecode(value) as List<dynamic>)
+      .map((item) => item as String)
+      .toList();
 }
 
 String dayId(DateTime date) =>
