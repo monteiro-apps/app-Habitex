@@ -56,7 +56,7 @@ class _HabitexAppState extends State<HabitexApp> {
         useMaterial3: true,
         brightness: Brightness.light,
         fontFamily: '.SF Pro Text',
-        scaffoldBackgroundColor: iosBg,
+        scaffoldBackgroundColor: const Color(0xFFF2F2F7),
         colorScheme: const ColorScheme(
           brightness: Brightness.light,
           primary: Color(0xFF007AFF),
@@ -566,32 +566,38 @@ class _RotinaPageState extends State<RotinaPage> {
                     child: TextField(
                       controller: taskController,
                       onSubmitted: (_) => addTask(),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         border: InputBorder.none,
                         hintText: 'Adicionar tarefa rápida',
-                        hintStyle: TextStyle(color: iosGray),
+                        hintStyle: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),
                   CupertinoButton(
                     minimumSize: const Size(82, 36),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    color: iosBg,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(20),
                     onPressed: () => setState(() => showOptions = !showOptions),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           CupertinoIcons.calendar,
-                          color: iosGray,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           size: 16,
                         ),
                         const SizedBox(width: 6),
                         Text(
                           targetDaysLabel,
-                          style: const TextStyle(
-                            color: iosGray,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -617,10 +623,10 @@ class _RotinaPageState extends State<RotinaPage> {
                 const Divider(height: 18),
                 Row(
                   children: [
-                    const Text(
+                    Text(
                       'Adicionar em',
                       style: TextStyle(
-                        color: iosGray,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                       ),
@@ -629,16 +635,18 @@ class _RotinaPageState extends State<RotinaPage> {
                     CupertinoButton(
                       minimumSize: const Size(32, 32),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      color: iosBg,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(16),
                       onPressed: () => setState(
                         () =>
                             targetDays = weekDays.map((day) => day.id).toList(),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Repetir semana',
                         style: TextStyle(
-                          color: iosGray,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -676,11 +684,13 @@ class _RotinaPageState extends State<RotinaPage> {
         IosCard(
           padding: EdgeInsets.zero,
           child: tasks.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(18),
+              ? Padding(
+                  padding: const EdgeInsets.all(18),
                   child: Text(
                     'Nenhuma tarefa por aqui.',
-                    style: TextStyle(color: iosGray),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 )
               : Column(
@@ -715,7 +725,7 @@ class _NotasPageState extends State<NotasPage> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: iosCard,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -759,8 +769,8 @@ class _NotasPageState extends State<NotasPage> {
                       const SizedBox(height: 8),
                       Text(
                         formatShortDate(note.updatedAt),
-                        style: const TextStyle(
-                          color: iosGray,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -770,8 +780,8 @@ class _NotasPageState extends State<NotasPage> {
                         note.body.isEmpty ? 'Nota vazia' : note.body,
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF5F6368),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           height: 1.35,
                         ),
                       ),
@@ -782,12 +792,14 @@ class _NotasPageState extends State<NotasPage> {
           ],
         ),
         if (widget.store.notes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 40),
+          Padding(
+            padding: const EdgeInsets.only(top: 40),
             child: Text(
               'Toque no lápis para criar sua primeira nota.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: iosGray),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         const SizedBox(height: 80),
@@ -866,7 +878,7 @@ class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
     return SafeArea(
       child: Drawer(
         width: MediaQuery.of(context).size.width * 0.85,
-        backgroundColor: iosBg,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         child: Navigator(
           onGenerateRoute: (_) => CupertinoPageRoute<void>(
             builder: (_) => DadosGeraisMenu(store: widget.store),
@@ -889,7 +901,7 @@ class DadosGeraisMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: iosBg,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
         children: [
@@ -898,17 +910,17 @@ class DadosGeraisMenu extends StatelessWidget {
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 onPressed: () => Scaffold.of(context).closeEndDrawer(),
-                child: const Icon(
+                child: Icon(
                   CupertinoIcons.xmark,
-                  color: iosGray,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   size: 22,
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Dados Gerais',
                 style: TextStyle(
-                  color: Color(0xFF0B0B0F),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                 ),
@@ -989,14 +1001,18 @@ class DadosGeraisTile extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
-                  color: Color(0xFF202124),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-            const Icon(CupertinoIcons.chevron_right, color: iosGray, size: 18),
+            Icon(
+              CupertinoIcons.chevron_right,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 18,
+            ),
             const SizedBox(width: 14),
           ],
         ),
@@ -1024,8 +1040,8 @@ class TemaSwitcher extends StatelessWidget {
           Expanded(
             child: Text(
               isDark ? 'Modo Escuro' : 'Modo Claro',
-              style: const TextStyle(
-                color: Color(0xFF202124),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
               ),
@@ -1048,9 +1064,12 @@ class DrawerDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(left: 52),
-      child: Divider(height: 1, color: Color(0xFFE5E5EA)),
+    return Padding(
+      padding: const EdgeInsets.only(left: 52),
+      child: Divider(
+        height: 1,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1),
+      ),
     );
   }
 }
@@ -1168,7 +1187,7 @@ class _PerfilPageState extends State<PerfilPage> {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: iosCard,
+                      color: Theme.of(context).colorScheme.surface,
                       shape: BoxShape.circle,
                       boxShadow: const [
                         BoxShadow(
@@ -1248,7 +1267,7 @@ class DrawerSubPageScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: iosBg,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
         children: [
@@ -1257,9 +1276,9 @@ class DrawerSubPageScaffold extends StatelessWidget {
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 onPressed: () => Navigator.pop(context),
-                child: const Icon(
+                child: Icon(
                   CupertinoIcons.chevron_left,
-                  color: iosGray,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   size: 24,
                 ),
               ),
@@ -1267,8 +1286,8 @@ class DrawerSubPageScaffold extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    color: Color(0xFF0B0B0F),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1327,13 +1346,16 @@ class NotificacoesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DrawerSubPageScaffold(
+    return DrawerSubPageScaffold(
       title: 'Notificações',
       children: [
         IosCard(
           child: Text(
             'Em breve voce podera configurar lembretes da rotina e dos habitos.',
-            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1348,13 +1370,16 @@ class ExportarPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DrawerSubPageScaffold(
+    return DrawerSubPageScaffold(
       title: 'Exportar Dados',
       children: [
         IosCard(
           child: Text(
             'Em breve voce podera exportar rotina, notas e progresso dos habitos.',
-            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1367,13 +1392,16 @@ class AssinaturaPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DrawerSubPageScaffold(
+    return DrawerSubPageScaffold(
       title: 'Assinatura Premium',
       children: [
         IosCard(
           child: Text(
             'Recursos premium serao adicionados em uma proxima versao.',
-            style: TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1394,7 +1422,10 @@ class StatLine extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(color: iosGray, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         Text(
@@ -1420,7 +1451,7 @@ class _HabitosPageState extends State<HabitosPage> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: iosCard,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -1653,7 +1684,10 @@ class HabitWeekCalendar extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '$completedGoals de $scheduledGoals metas batidas nesta semana',
-            style: const TextStyle(color: iosGray, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -1666,8 +1700,8 @@ class HabitWeekCalendar extends StatelessWidget {
                       Text(
                         weekDays[date.weekday - 1].short,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Color(0xFF5F6368),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1680,7 +1714,9 @@ class HabitWeekCalendar extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: isSameDate(date, DateTime.now())
                               ? iosBlue
-                              : iosBg,
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(
@@ -1688,7 +1724,7 @@ class HabitWeekCalendar extends StatelessWidget {
                           style: TextStyle(
                             color: isSameDate(date, DateTime.now())
                                 ? Colors.white
-                                : const Color(0xFF3A3A40),
+                                : Theme.of(context).colorScheme.onSurface,
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
                           ),
@@ -1701,12 +1737,14 @@ class HabitWeekCalendar extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (store.habits.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
               child: Center(
                 child: Text(
                   'Crie seu primeiro hábito para ver a semana.',
-                  style: TextStyle(color: iosGray),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             )
@@ -1730,10 +1768,10 @@ class HabitWeekCalendar extends StatelessWidget {
                               habit.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w900,
-                                color: Color(0xFF202124),
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           ),
@@ -1795,8 +1833,8 @@ class CalendarLegendDot extends StatelessWidget {
         const SizedBox(width: 5),
         Text(
           label,
-          style: const TextStyle(
-            color: iosGray,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
@@ -1850,14 +1888,16 @@ class HabitCard extends StatelessWidget {
     final complete = isHabitComplete(habit, value);
 
     return IosCard(
-      color: complete ? iosGreen.withValues(alpha: 0.10) : iosCard,
+      color: complete
+          ? iosGreen.withValues(alpha: 0.10)
+          : Theme.of(context).colorScheme.surface,
       child: Row(
         children: [
           Container(
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: iosBg,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
             alignment: Alignment.center,
@@ -1872,7 +1912,8 @@ class HabitCard extends StatelessWidget {
                   habit.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 17,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1882,8 +1923,8 @@ class HabitCard extends StatelessWidget {
                   habit.isBinary
                       ? (complete ? 'Concluído' : 'Pendente')
                       : '$value/${habit.goal} ${habit.unit}',
-                  style: const TextStyle(
-                    color: iosGray,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1891,8 +1932,8 @@ class HabitCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     'Cada toque registra ${habit.step} ${habit.unit}',
-                    style: const TextStyle(
-                      color: iosGray,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1905,7 +1946,9 @@ class HabitCard extends StatelessWidget {
             CupertinoButton(
               minimumSize: const Size(40, 40),
               padding: EdgeInsets.zero,
-              color: complete ? iosGreen : iosBg,
+              color: complete
+                  ? iosGreen
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(22),
               onPressed: () => onChange(complete ? 0 : 1),
               child: complete
@@ -2037,7 +2080,9 @@ class _HabitSheetState extends State<HabitSheet> {
               width: 40,
               height: 5,
               decoration: BoxDecoration(
-                color: const Color(0xFFD1D1D6),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -2048,10 +2093,10 @@ class _HabitSheetState extends State<HabitSheet> {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: () => Navigator.pop(context),
-                  child: const Text(
+                  child: Text(
                     'Cancelar',
                     style: TextStyle(
-                      color: iosGray,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -2069,14 +2114,21 @@ class _HabitSheetState extends State<HabitSheet> {
                 ),
               ],
             ),
-            const Text(
+            Text(
               'Novo hábito',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Defina nome, ícone, frequência e meta.',
-              style: TextStyle(color: iosGray, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Row(
@@ -2105,7 +2157,7 @@ class _HabitSheetState extends State<HabitSheet> {
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: iosBg,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -2215,14 +2267,14 @@ class _HabitSheetState extends State<HabitSheet> {
             ],
             const SizedBox(height: 14),
             IosCard(
-              color: iosBg,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Frequência',
                     style: TextStyle(
-                      color: iosGray,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
@@ -2344,7 +2396,9 @@ class _NoteSheetState extends State<NoteSheet> {
               width: 40,
               height: 5,
               decoration: BoxDecoration(
-                color: const Color(0xFFD1D1D6),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -2355,10 +2409,10 @@ class _NoteSheetState extends State<NoteSheet> {
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: () => Navigator.pop(context),
-                  child: const Text(
+                  child: Text(
                     'Cancelar',
                     style: TextStyle(
-                      color: iosGray,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -2423,8 +2477,10 @@ class HabitexTabBar extends StatelessWidget {
           currentIndex: currentTab.index,
           onTap: (index) => onChanged(AppTab.values[index]),
           selectedItemColor: iosBlue,
-          unselectedItemColor: iosGray,
-          backgroundColor: Colors.white.withValues(alpha: 0.82),
+          unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
+          backgroundColor: Theme.of(
+            context,
+          ).colorScheme.surface.withValues(alpha: 0.85),
           elevation: 0,
           type: BottomNavigationBarType.fixed,
           items: const [
@@ -2460,8 +2516,8 @@ class HabitexHeader extends StatelessWidget {
       children: [
         Text(
           subtitle,
-          style: const TextStyle(
-            color: iosGray,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
@@ -2469,11 +2525,11 @@ class HabitexHeader extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 34,
             height: 1,
             fontWeight: FontWeight.w900,
-            color: Color(0xFF0B0B0F),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],
@@ -2486,13 +2542,13 @@ class IosCard extends StatelessWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
-    this.color = iosCard,
+    this.color,
     this.borderRadius = 12,
   });
 
   final Widget child;
   final EdgeInsets padding;
-  final Color color;
+  final Color? color;
   final double borderRadius;
 
   @override
@@ -2500,7 +2556,7 @@ class IosCard extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: color,
+        color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: const [
           BoxShadow(
@@ -2534,13 +2590,15 @@ class DayChip extends StatelessWidget {
     return CupertinoButton(
       minimumSize: Size(compact ? 32 : 40, compact ? 32 : 40),
       padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
-      color: selected ? iosBlue : iosCard,
+      color: selected ? iosBlue : Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(compact ? 18 : 12),
       onPressed: onTap,
       child: Text(
         label,
         style: TextStyle(
-          color: selected ? Colors.white : const Color(0xFF3A3A40),
+          color: selected
+              ? Colors.white
+              : Theme.of(context).colorScheme.onSurface,
           fontSize: compact ? 12 : 14,
           fontWeight: FontWeight.w800,
         ),
@@ -2565,8 +2623,14 @@ class TaskRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFF2F2F7))),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -2581,7 +2645,11 @@ class TaskRow extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: task.done ? iosBlue : Colors.transparent,
                     border: Border.all(
-                      color: task.done ? iosBlue : const Color(0xFFD1D1D6),
+                      color: task.done
+                          ? iosBlue
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.15),
                       width: 2,
                     ),
                   ),
@@ -2606,7 +2674,9 @@ class TaskRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 16,
-                  color: task.done ? iosGray : const Color(0xFF111111),
+                  color: task.done
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.onSurface,
                   decoration: task.done ? TextDecoration.lineThrough : null,
                 ),
               ),
@@ -2658,7 +2728,7 @@ class FieldBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: iosBg,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -2666,8 +2736,8 @@ class FieldBox extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              color: iosGray,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 12,
               fontWeight: FontWeight.w800,
             ),
@@ -2706,13 +2776,17 @@ class SheetSegment extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoButton(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      color: selected ? iosCard : Colors.transparent,
+      color: selected
+          ? Theme.of(context).colorScheme.surface
+          : Colors.transparent,
       borderRadius: BorderRadius.circular(10),
       onPressed: onTap,
       child: Text(
         label,
         style: TextStyle(
-          color: selected ? const Color(0xFF111111) : iosGray,
+          color: selected
+              ? Theme.of(context).colorScheme.onSurface
+              : Theme.of(context).colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -2735,13 +2809,13 @@ class FrequencyQuickButton extends StatelessWidget {
     return CupertinoButton(
       minimumSize: const Size(32, 32),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      color: iosCard,
+      color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(16),
       onPressed: onPressed,
       child: Text(
         label,
-        style: const TextStyle(
-          color: iosGray,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
@@ -2765,13 +2839,13 @@ class UnitQuickButton extends StatelessWidget {
     return CupertinoButton(
       minimumSize: const Size(32, 32),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      color: iosBg,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(16),
       onPressed: onPressed,
       child: Text(
         label,
-        style: const TextStyle(
-          color: iosGray,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
@@ -2795,7 +2869,7 @@ class RoundIconButton extends StatelessWidget {
     return CupertinoButton(
       minimumSize: const Size(36, 36),
       padding: EdgeInsets.zero,
-      color: iosBg,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(20),
       onPressed: onPressed,
       child: Icon(icon, color: iosBlue, size: 19),
