@@ -292,9 +292,29 @@ class HabitexStore {
     onChanged();
   }
 
+  Future<void> saveNotifRotina({
+    required bool ativo,
+    required String hora,
+  }) async {
+    notifRotina = ativo;
+    notifRotinaHora = hora;
+    await _prefs?.setBool('habitex.notifRotina', ativo);
+    await _prefs?.setString('habitex.notifRotinaHora', hora);
+    onChanged();
+  }
+
   Future<void> setHabitNotification(String habitId, bool enabled) async {
     notifHabitos = {...notifHabitos, habitId: enabled};
     await _prefs?.setBool('habitex.notifHabito_$habitId', enabled);
+    onChanged();
+  }
+
+  Future<void> saveNotifHabito({
+    required String habitoId,
+    required bool ativo,
+  }) async {
+    notifHabitos = {...notifHabitos, habitoId: ativo};
+    await _prefs?.setBool('habitex.notifHabito_$habitoId', ativo);
     onChanged();
   }
 
@@ -306,6 +326,18 @@ class HabitexStore {
     await _prefs?.setString(
       'habitex.notifHabitoHoras_$habitId',
       jsonEncode(hours),
+    );
+    onChanged();
+  }
+
+  Future<void> saveNotifHabitoHoras({
+    required String habitoId,
+    required List<String> horas,
+  }) async {
+    notifHabitoHoras = {...notifHabitoHoras, habitoId: horas};
+    await _prefs?.setString(
+      'habitex.notifHabitoHoras_$habitoId',
+      jsonEncode(horas),
     );
     onChanged();
   }
@@ -2011,9 +2043,20 @@ class NotificacoesPage extends StatefulWidget {
 }
 
 class _NotificacoesPageState extends State<NotificacoesPage> {
+  late bool _notifRotinaAtiva;
+  late String _notifRotinaHora;
+  late Map<String, bool> _notifHabitoAtivo;
+  late Map<String, List<String>> _notifHabitoHoras;
+
   @override
   void initState() {
     super.initState();
+    _notifRotinaAtiva = widget.store.notifRotina;
+    _notifRotinaHora = widget.store.notifRotinaHora;
+    _notifHabitoAtivo = Map<String, bool>.from(widget.store.notifHabitos);
+    _notifHabitoHoras = widget.store.notifHabitoHoras.map(
+      (habitId, hours) => MapEntry(habitId, List<String>.from(hours)),
+    );
     requestNotificationPermission();
   }
 
@@ -2031,13 +2074,14 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
   }
 
   Future<void> toggleRoutine(bool enabled) async {
-    await widget.store.setRoutineNotification(enabled);
+    setState(() => _notifRotinaAtiva = enabled);
+    await widget.store.saveNotifRotina(ativo: enabled, hora: _notifRotinaHora);
     if (!enabled) {
       await flutterLocalNotificationsPlugin.cancel(0);
       return;
     }
     await agendarNotifRotina(
-      timeOfDayFromString(widget.store.notifRotinaHora),
+      timeOfDayFromString(_notifRotinaHora),
       pendingTasksToday,
     );
   }
@@ -2045,32 +2089,40 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
   Future<void> pickRoutineTime() async {
     final picked = await pickNotificationTime(
       context,
-      timeOfDayFromString(widget.store.notifRotinaHora),
+      timeOfDayFromString(_notifRotinaHora),
     );
     if (picked == null) return;
     final value = timeOfDayToString(picked);
-    await widget.store.setRoutineNotificationTime(value);
-    if (widget.store.notifRotina) {
+    setState(() => _notifRotinaHora = value);
+    await widget.store.saveNotifRotina(ativo: _notifRotinaAtiva, hora: value);
+    if (_notifRotinaAtiva) {
       await agendarNotifRotina(picked, pendingTasksToday);
     }
   }
 
   Future<void> toggleHabit(Habit habit, bool enabled) async {
-    await widget.store.setHabitNotification(habit.id, enabled);
+    var hours = _notifHabitoHoras[habit.id] ?? [];
+    if (enabled && hours.isEmpty) {
+      hours = ['08:00'];
+    }
+    setState(() {
+      _notifHabitoAtivo[habit.id] = enabled;
+      _notifHabitoHoras[habit.id] = List<String>.from(hours);
+    });
+    await widget.store.saveNotifHabito(habitoId: habit.id, ativo: enabled);
+    await widget.store.saveNotifHabitoHoras(
+      habitoId: habit.id,
+      horas: _notifHabitoHoras[habit.id]!,
+    );
     if (!enabled) {
       await cancelarNotifsHabito(habit);
       return;
-    }
-    var hours = widget.store.notifHabitoHoras[habit.id] ?? [];
-    if (hours.isEmpty) {
-      hours = ['08:00'];
-      await widget.store.setHabitNotificationHours(habit.id, hours);
     }
     await reagendarNotifsHabito(habit, hours);
   }
 
   Future<void> addHabitTime(Habit habit) async {
-    final currentHours = widget.store.notifHabitoHoras[habit.id] ?? [];
+    final currentHours = _notifHabitoHoras[habit.id] ?? [];
     if (currentHours.length >= 3) return;
     final initial = currentHours.isEmpty
         ? const TimeOfDay(hour: 8, minute: 0)
@@ -2078,18 +2130,30 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     final picked = await pickNotificationTime(context, initial);
     if (picked == null) return;
     final nextHours = [...currentHours, timeOfDayToString(picked)];
-    await widget.store.setHabitNotificationHours(habit.id, nextHours);
-    if (widget.store.notifHabitos[habit.id] ?? false) {
+    setState(() {
+      _notifHabitoHoras[habit.id] = nextHours;
+    });
+    await widget.store.saveNotifHabitoHoras(
+      habitoId: habit.id,
+      horas: nextHours,
+    );
+    if (_notifHabitoAtivo[habit.id] ?? false) {
       await reagendarNotifsHabito(habit, nextHours);
     }
   }
 
   Future<void> removeHabitTime(Habit habit, String hour) async {
-    final nextHours = (widget.store.notifHabitoHoras[habit.id] ?? [])
+    final nextHours = (_notifHabitoHoras[habit.id] ?? [])
         .where((item) => item != hour)
         .toList();
-    await widget.store.setHabitNotificationHours(habit.id, nextHours);
-    if (widget.store.notifHabitos[habit.id] ?? false) {
+    setState(() {
+      _notifHabitoHoras[habit.id] = nextHours;
+    });
+    await widget.store.saveNotifHabitoHoras(
+      habitoId: habit.id,
+      horas: nextHours,
+    );
+    if (_notifHabitoAtivo[habit.id] ?? false) {
       await reagendarNotifsHabito(habit, nextHours);
     }
   }
@@ -2107,14 +2171,14 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
                 title: 'Lembrete de Tarefas',
                 description:
                     'Receba um aviso diário com suas tarefas pendentes',
-                value: widget.store.notifRotina,
+                value: _notifRotinaAtiva,
                 onChanged: toggleRoutine,
               ),
-              if (widget.store.notifRotina) ...[
+              if (_notifRotinaAtiva) ...[
                 const SizedBox(height: 12),
                 NotificationTimeButton(
                   label: 'Horário',
-                  value: widget.store.notifRotinaHora,
+                  value: _notifRotinaHora,
                   onPressed: pickRoutineTime,
                 ),
               ],
@@ -2153,8 +2217,8 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
           for (final habit in widget.store.habits) ...[
             HabitNotificationCard(
               habit: habit,
-              enabled: widget.store.notifHabitos[habit.id] ?? false,
-              hours: widget.store.notifHabitoHoras[habit.id] ?? [],
+              enabled: _notifHabitoAtivo[habit.id] ?? false,
+              hours: _notifHabitoHoras[habit.id] ?? [],
               onToggle: (value) => toggleHabit(habit, value),
               onAddTime: () => addHabitTime(habit),
               onRemoveTime: (hour) => removeHabitTime(habit, hour),
