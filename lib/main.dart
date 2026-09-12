@@ -240,7 +240,11 @@ class HabitexStore {
   }
 
   Future<void> setDarkMode(bool value) async {
-    themeMode = value ? ThemeMode.dark : ThemeMode.light;
+    await setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    themeMode = mode;
     await _prefs?.setString('habitex.themeMode', themeModeToString(themeMode));
     onChanged();
   }
@@ -1036,7 +1040,11 @@ class TemaSwitcher extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 16),
-          const Icon(CupertinoIcons.moon_fill, color: iosBlue, size: 22),
+          Icon(
+            isDark ? CupertinoIcons.moon_fill : CupertinoIcons.sun_max_fill,
+            color: iosBlue,
+            size: 22,
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
@@ -1044,14 +1052,16 @@ class TemaSwitcher extends StatelessWidget {
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 16,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
           CupertinoSwitch(
             value: isDark,
             activeTrackColor: iosBlue,
-            onChanged: store.setDarkMode,
+            onChanged: (value) {
+              store.setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
+            },
           ),
           const SizedBox(width: 14),
         ],
