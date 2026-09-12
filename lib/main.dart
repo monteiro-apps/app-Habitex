@@ -1345,10 +1345,15 @@ class EstatisticasPage extends StatelessWidget {
 }
 
 class HabitConsistency {
-  const HabitConsistency({required this.habit, required this.completedDays});
+  const HabitConsistency({
+    required this.habit,
+    required this.completedDays,
+    required this.scheduledDays,
+  });
 
   final Habit habit;
   final int completedDays;
+  final int scheduledDays;
 }
 
 class DailyCompletionRate {
@@ -1388,6 +1393,7 @@ class ConsistentHabitCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final habit = highlight?.habit;
     final count = highlight?.completedDays ?? 0;
+    final scheduledDays = highlight?.scheduledDays ?? 0;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 16, 16, 16),
@@ -1432,7 +1438,7 @@ class ConsistentHabitCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '$count/7 dias',
+                  '$count/$scheduledDays dias',
                   style: const TextStyle(
                     color: iosGreen,
                     fontSize: 16,
@@ -3504,6 +3510,7 @@ HabitConsistency? mostConsistentHabit(HabitexStore store) {
     for (final habit in store.habits)
       HabitConsistency(
         habit: habit,
+        scheduledDays: diasAgendadosNaSemana(habit),
         completedDays: dates.where((date) {
           if (!habit.frequency.contains(dayId(date))) return false;
           final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
@@ -3513,6 +3520,15 @@ HabitConsistency? mostConsistentHabit(HabitexStore store) {
   ];
   results.sort((a, b) => b.completedDays.compareTo(a.completedDays));
   return results.first;
+}
+
+int diasAgendadosNaSemana(Habit habit) {
+  var count = 0;
+  for (var index = 0; index < 7; index++) {
+    final date = DateTime.now().subtract(Duration(days: index));
+    if (habit.frequency.contains(dayId(date))) count++;
+  }
+  return count;
 }
 
 int calcStreakPorHabito(

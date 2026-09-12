@@ -79,6 +79,7 @@ void main() {
     expect(calcStreakPorHabito(store.habits.last, store.habitProgress), 1);
     expect(mostConsistentHabit(store)?.habit.id, 'agua');
     expect(mostConsistentHabit(store)?.completedDays, 2);
+    expect(mostConsistentHabit(store)?.scheduledDays, 7);
 
     final rates = habitCompletionRates(store);
     expect(rates.first.habit.id, 'agua');
