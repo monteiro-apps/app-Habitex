@@ -76,9 +76,10 @@ void main() {
 
     final rates = habitCompletionRates(store);
     expect(rates.first.habit.id, 'agua');
+    expect(rates.first.percent, greaterThan(rates.last.percent));
     expect(
-      rates.first.percent.round(),
-      greaterThan(rates.last.percent.round()),
+      calcPercentualHabito(store.habits.last, store.habitProgress),
+      closeTo(1 / 7, 0.001),
     );
     expect(dailyHabitCompletionPercent(store, today), 100);
   });

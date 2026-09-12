@@ -1756,14 +1756,14 @@ class HabitRateCard extends StatelessWidget {
   final HabitCompletionRate rate;
 
   Color get progressColor {
-    if (rate.percent >= 80) return iosGreen;
-    if (rate.percent >= 50) return iosBlue;
+    if (rate.percent >= 0.8) return iosGreen;
+    if (rate.percent >= 0.5) return iosBlue;
     return iosRed;
   }
 
   @override
   Widget build(BuildContext context) {
-    final percent = rate.percent.round();
+    final percent = (rate.percent * 100).round();
 
     return IosCard(
       child: Row(
@@ -1788,7 +1788,7 @@ class HabitRateCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     minHeight: 8,
-                    value: rate.percent / 100,
+                    value: rate.percent,
                     color: progressColor,
                     backgroundColor: Theme.of(
                       context,
@@ -3537,6 +3537,28 @@ List<HabitCompletionRate> habitCompletionRates(HabitexStore store) {
   return rates;
 }
 
+double calcPercentualHabito(
+  Habit habit,
+  Map<String, Map<String, int>> habitProgress,
+) {
+  var scheduledDays = 0;
+  var completedDays = 0;
+
+  for (var index = 0; index < 7; index++) {
+    final date = DateTime.now().subtract(Duration(days: index));
+    final weekday = dayId(date);
+    if (!habit.frequency.contains(weekday)) continue;
+
+    scheduledDays++;
+
+    final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
+    if (isHabitComplete(habit, value)) completedDays++;
+  }
+
+  if (scheduledDays == 0) return 0;
+  return completedDays / scheduledDays;
+}
+
 HabitCompletionRate habitCompletionRateForDates(
   HabitexStore store,
   Habit habit,
@@ -3556,7 +3578,7 @@ HabitCompletionRate habitCompletionRateForDates(
     habit: habit,
     completedDays: completedDays,
     scheduledDays: scheduledDays,
-    percent: scheduledDays == 0 ? 0 : (completedDays / scheduledDays) * 100,
+    percent: calcPercentualHabito(habit, store.habitProgress),
   );
 }
 
