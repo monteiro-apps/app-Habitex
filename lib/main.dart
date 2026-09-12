@@ -1325,7 +1325,12 @@ class EstatisticasPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highlight = mostConsistentHabit(store);
-    final streaks = habitStreaks(store);
+    final allStreaks = habitStreaks(store);
+    final bestStreak = allStreaks.isEmpty ? null : allStreaks.first;
+    final otherStreaks = allStreaks
+        .skip(1)
+        .where((streak) => streak.days > 0)
+        .toList();
     final dailyRates = habitDailyCompletionRates(store);
     final habitRates = habitCompletionRates(store);
 
@@ -1334,7 +1339,7 @@ class EstatisticasPage extends StatelessWidget {
       children: [
         ConsistentHabitCard(highlight: highlight),
         const SizedBox(height: 14),
-        StreakCard(streaks: streaks),
+        StreakCard(best: bestStreak, others: otherStreaks),
         const SizedBox(height: 14),
         WeeklyBarsCard(rates: dailyRates),
         const SizedBox(height: 14),
@@ -1452,14 +1457,14 @@ class ConsistentHabitCard extends StatelessWidget {
 }
 
 class StreakCard extends StatelessWidget {
-  const StreakCard({super.key, required this.streaks});
+  const StreakCard({super.key, required this.best, required this.others});
 
-  final List<HabitStreak> streaks;
+  final HabitStreak? best;
+  final List<HabitStreak> others;
 
   @override
   Widget build(BuildContext context) {
-    final best = streaks.isEmpty ? null : streaks.first;
-    final others = streaks.skip(1).where((streak) => streak.days > 0).toList();
+    final bestStreak = best;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1492,7 +1497,7 @@ class StreakCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (best == null)
+          if (bestStreak == null)
             Text(
               'Cadastre hábitos para iniciar sua sequência.',
               style: TextStyle(
@@ -1504,11 +1509,14 @@ class StreakCard extends StatelessWidget {
           else ...[
             Row(
               children: [
-                Text(best.habit.icon, style: const TextStyle(fontSize: 24)),
+                Text(
+                  bestStreak.habit.icon,
+                  style: const TextStyle(fontSize: 24),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    best.habit.name,
+                    bestStreak.habit.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1523,7 +1531,7 @@ class StreakCard extends StatelessWidget {
                   text: TextSpan(
                     children: [
                       TextSpan(
-                        text: '${best.days}',
+                        text: '${bestStreak.days}',
                         style: const TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w900,
@@ -1531,7 +1539,7 @@ class StreakCard extends StatelessWidget {
                         ),
                       ),
                       TextSpan(
-                        text: ' ${best.days == 1 ? 'dia' : 'dias'}',
+                        text: ' ${bestStreak.days == 1 ? 'dia' : 'dias'}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1590,7 +1598,7 @@ class StreakCard extends StatelessWidget {
                 ],
               ),
             ],
-            if (best.days == 0)
+            if (bestStreak.days == 0)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
