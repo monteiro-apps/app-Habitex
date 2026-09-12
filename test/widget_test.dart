@@ -34,6 +34,12 @@ void main() {
     expect(themeModeFromString('system'), ThemeMode.system);
   });
 
+  test('Habitex maps completion percentage colors', () {
+    expect(corDoPercentual(0.8), iosGreen);
+    expect(corDoPercentual(0.5), iosOrange);
+    expect(corDoPercentual(0.49), iosRed);
+  });
+
   test('Habitex calculates habit statistics from progress', () {
     final store = HabitexStore(onChanged: () {});
     final today = DateTime.now();

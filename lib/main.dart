@@ -17,6 +17,7 @@ const iosCard = Color(0xFFFFFFFF);
 const iosBlue = Color(0xFF007AFF);
 const iosGray = Color(0xFF8E8E93);
 const iosGreen = Color(0xFF34C759);
+const iosOrange = Color(0xFFFF9500);
 const iosRedLight = Color(0xFFFFD9D7);
 const iosRed = Color(0xFFFF6B63);
 const calendarFree = Color(0xFFF0F0F3);
@@ -1755,15 +1756,10 @@ class HabitRateCard extends StatelessWidget {
 
   final HabitCompletionRate rate;
 
-  Color get progressColor {
-    if (rate.percent >= 0.8) return iosGreen;
-    if (rate.percent >= 0.5) return iosBlue;
-    return iosRed;
-  }
-
   @override
   Widget build(BuildContext context) {
     final percent = (rate.percent * 100).round();
+    final progressColor = corDoPercentual(rate.percent);
 
     return IosCard(
       child: Row(
@@ -1789,10 +1785,10 @@ class HabitRateCard extends StatelessWidget {
                   child: LinearProgressIndicator(
                     minHeight: 8,
                     value: rate.percent,
-                    color: progressColor,
+                    valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                     backgroundColor: Theme.of(
                       context,
-                    ).colorScheme.surfaceContainerHighest,
+                    ).colorScheme.onSurface.withValues(alpha: 0.08),
                   ),
                 ),
               ],
@@ -3580,6 +3576,12 @@ HabitCompletionRate habitCompletionRateForDates(
     scheduledDays: scheduledDays,
     percent: calcPercentualHabito(habit, store.habitProgress),
   );
+}
+
+Color corDoPercentual(double percentual) {
+  if (percentual >= 0.8) return iosGreen;
+  if (percentual >= 0.5) return iosOrange;
+  return iosRed;
 }
 
 String normalizeHabitUnit(String unit) {
