@@ -1559,18 +1559,16 @@ class StreakCard extends StatelessWidget {
                 ).colorScheme.onSurface.withValues(alpha: 0.1),
               ),
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: others.length == 1
-                    ? MainAxisAlignment.start
-                    : MainAxisAlignment.spaceAround,
-                children: [
-                  for (final streak in others.take(3))
-                    if (others.length == 1)
-                      SizedBox(width: 72, child: StreakMiniCard(streak: streak))
-                    else
+              if (others.length == 1)
+                StreakSecondaryRow(streak: others.first)
+              else
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    for (final streak in others.take(3))
                       Expanded(child: StreakMiniCard(streak: streak)),
-                ],
-              ),
+                  ],
+                ),
             ],
             if (bestStreak.days == 0)
               Padding(
@@ -1587,6 +1585,64 @@ class StreakCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class StreakSecondaryRow extends StatelessWidget {
+  const StreakSecondaryRow({super.key, required this.streak});
+
+  final HabitStreak streak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Text(streak.habit.icon, style: const TextStyle(fontSize: 22)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  streak.habit.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: '${streak.days}',
+                style: const TextStyle(
+                  color: iosBlue,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              TextSpan(
+                text: ' ${streak.days == 1 ? 'dia' : 'dias'}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
