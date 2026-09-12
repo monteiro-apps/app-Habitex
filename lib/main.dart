@@ -1531,7 +1531,7 @@ class StreakCard extends StatelessWidget {
                         ),
                       ),
                       TextSpan(
-                        text: ' dias',
+                        text: ' ${best.days == 1 ? 'dia' : 'dias'}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
