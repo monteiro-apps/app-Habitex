@@ -761,7 +761,8 @@ class _NotasPageState extends State<NotasPage> {
                         note.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                         ),
@@ -781,7 +782,7 @@ class _NotasPageState extends State<NotasPage> {
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurface,
                           height: 1.35,
                         ),
                       ),
@@ -1656,10 +1657,14 @@ class HabitWeekCalendar extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Calendário semanal',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               Container(
@@ -1889,7 +1894,7 @@ class HabitCard extends StatelessWidget {
 
     return IosCard(
       color: complete
-          ? iosGreen.withValues(alpha: 0.10)
+          ? Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15)
           : Theme.of(context).colorScheme.surface,
       child: Row(
         children: [
@@ -2590,7 +2595,9 @@ class DayChip extends StatelessWidget {
     return CupertinoButton(
       minimumSize: Size(compact ? 32 : 40, compact ? 32 : 40),
       padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
-      color: selected ? iosBlue : Theme.of(context).colorScheme.surface,
+      color: selected
+          ? iosBlue
+          : Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(compact ? 18 : 12),
       onPressed: onTap,
       child: Text(
