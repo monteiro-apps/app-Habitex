@@ -1398,7 +1398,7 @@ class ConsistentHabitCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 16, 16, 16),
       decoration: BoxDecoration(
-        color: iosGreen.withValues(alpha: 0.15),
+        color: iosGreen.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
         border: const Border(left: BorderSide(color: iosGreen, width: 4)),
       ),
