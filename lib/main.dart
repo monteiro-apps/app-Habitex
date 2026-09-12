@@ -1324,7 +1324,7 @@ class EstatisticasPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highlight = mostConsistentHabit(store);
-    final streak = calcStreak(store);
+    final streaks = habitStreaks(store);
     final dailyRates = habitDailyCompletionRates(store);
     final habitRates = habitCompletionRates(store);
 
@@ -1333,7 +1333,7 @@ class EstatisticasPage extends StatelessWidget {
       children: [
         ConsistentHabitCard(highlight: highlight),
         const SizedBox(height: 14),
-        StreakCard(streak: streak),
+        StreakCard(streaks: streaks),
         const SizedBox(height: 14),
         WeeklyBarsCard(rates: dailyRates),
         const SizedBox(height: 14),
@@ -1369,6 +1369,13 @@ class HabitCompletionRate {
   final double percent;
   final int completedDays;
   final int scheduledDays;
+}
+
+class HabitStreak {
+  const HabitStreak({required this.habit, required this.days});
+
+  final Habit habit;
+  final int days;
 }
 
 class ConsistentHabitCard extends StatelessWidget {
@@ -1438,35 +1445,145 @@ class ConsistentHabitCard extends StatelessWidget {
 }
 
 class StreakCard extends StatelessWidget {
-  const StreakCard({super.key, required this.streak});
+  const StreakCard({super.key, required this.streaks});
 
-  final int streak;
+  final List<HabitStreak> streaks;
 
   @override
   Widget build(BuildContext context) {
-    return IosCard(
-      child: Center(
-        child: Column(
-          children: [
-            Text(
-              '$streak',
-              style: const TextStyle(
-                color: iosBlue,
-                fontSize: 48,
-                fontWeight: FontWeight.w900,
-                height: 1,
+    final best = streaks.isEmpty ? null : streaks.first;
+    final others = streaks.skip(1).where((streak) => streak.days > 0).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🔥', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 6),
+              Text(
+                'Maior sequência ativa',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (best == null)
             Text(
-              'dias seguidos',
+              'Cadastre hábitos para iniciar sua sequência.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
+            )
+          else ...[
+            Row(
+              children: [
+                Text(best.habit.icon, style: const TextStyle(fontSize: 24)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    best.habit.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${best.days}',
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: iosBlue,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' dias',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            if (others.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Divider(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.1),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  for (final streak in others.take(3))
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Text(
+                            streak.habit.icon,
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${streak.days}d',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: iosBlue,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (best.days == 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Complete um hábito hoje para iniciar sua sequência.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -3349,24 +3466,41 @@ HabitConsistency? mostConsistentHabit(HabitexStore store) {
   return results.first;
 }
 
-int calcStreak(HabitexStore store) {
+int calcStreakPorHabito(
+  Habit habit,
+  Map<String, Map<String, int>> habitProgress,
+) {
   var streak = 0;
   var day = DateTime.now();
-  while (true) {
+  for (var index = 0; index < 365; index++) {
     final key = dateKey(day);
-    final progress = store.habitProgress[key] ?? {};
-    final habitsForDay = store.habits
-        .where((habit) => habit.frequency.contains(dayId(day)))
-        .toList();
-    if (habitsForDay.isEmpty) break;
-    final allDone = habitsForDay.every(
-      (habit) => isHabitComplete(habit, progress[habit.id] ?? 0),
-    );
-    if (!allDone) break;
-    streak++;
+    final weekday = dayId(day);
+
+    if (!habit.frequency.contains(weekday)) {
+      day = day.subtract(const Duration(days: 1));
+      continue;
+    }
+
+    final progress = habitProgress[key] ?? {};
+    final value = progress[habit.id] ?? 0;
+    if (!isHabitComplete(habit, value)) break;
+
+    streak += 1;
     day = day.subtract(const Duration(days: 1));
   }
   return streak;
+}
+
+List<HabitStreak> habitStreaks(HabitexStore store) {
+  final streaks = [
+    for (final habit in store.habits)
+      HabitStreak(
+        habit: habit,
+        days: calcStreakPorHabito(habit, store.habitProgress),
+      ),
+  ];
+  streaks.sort((a, b) => b.days.compareTo(a.days));
+  return streaks;
 }
 
 List<DailyCompletionRate> habitDailyCompletionRates(HabitexStore store) {

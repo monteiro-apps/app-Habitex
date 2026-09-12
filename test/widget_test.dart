@@ -67,7 +67,10 @@ void main() {
       dateKey(yesterday): {'agua': 1000, 'ler': 2},
     };
 
-    expect(calcStreak(store), 1);
+    final streaks = habitStreaks(store);
+    expect(streaks.first.habit.id, 'agua');
+    expect(streaks.first.days, 2);
+    expect(calcStreakPorHabito(store.habits.last, store.habitProgress), 1);
     expect(mostConsistentHabit(store)?.habit.id, 'agua');
     expect(mostConsistentHabit(store)?.completedDays, 2);
 
