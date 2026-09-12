@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1322,30 +1323,371 @@ class EstatisticasPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalTasks = store.tasksByDay.values.fold<int>(
-      0,
-      (sum, tasks) => sum + tasks.length,
-    );
+    final highlight = mostConsistentHabit(store);
+    final streak = calcStreak(store);
+    final dailyRates = habitDailyCompletionRates(store);
+    final habitRates = habitCompletionRates(store);
 
     return DrawerSubPageScaffold(
       title: 'Estatísticas',
       children: [
-        IosCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              StatLine(
-                label: 'Hábitos cadastrados',
-                value: '${store.habits.length}',
+        ConsistentHabitCard(highlight: highlight),
+        const SizedBox(height: 14),
+        StreakCard(streak: streak),
+        const SizedBox(height: 14),
+        WeeklyBarsCard(rates: dailyRates),
+        const SizedBox(height: 14),
+        HabitRatesSection(rates: habitRates),
+      ],
+    );
+  }
+}
+
+class HabitConsistency {
+  const HabitConsistency({required this.habit, required this.completedDays});
+
+  final Habit habit;
+  final int completedDays;
+}
+
+class DailyCompletionRate {
+  const DailyCompletionRate({required this.date, required this.percent});
+
+  final DateTime date;
+  final double percent;
+}
+
+class HabitCompletionRate {
+  const HabitCompletionRate({
+    required this.habit,
+    required this.percent,
+    required this.completedDays,
+    required this.scheduledDays,
+  });
+
+  final Habit habit;
+  final double percent;
+  final int completedDays;
+  final int scheduledDays;
+}
+
+class ConsistentHabitCard extends StatelessWidget {
+  const ConsistentHabitCard({super.key, required this.highlight});
+
+  final HabitConsistency? highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final habit = highlight?.habit;
+    final count = highlight?.completedDays ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: iosGreen.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: const Border(left: BorderSide(color: iosGreen, width: 4)),
+      ),
+      child: habit == null
+          ? const Text(
+              'Cadastre hábitos para ver seu destaque semanal.',
+              style: TextStyle(color: iosGreen, fontWeight: FontWeight.w800),
+            )
+          : Row(
+              children: [
+                Text(habit.icon, style: const TextStyle(fontSize: 28)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Hábito mais consistente',
+                        style: TextStyle(
+                          color: iosGreen,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        habit.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: iosGreen,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '$count/7 dias',
+                  style: const TextStyle(
+                    color: iosGreen,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class StreakCard extends StatelessWidget {
+  const StreakCard({super.key, required this.streak});
+
+  final int streak;
+
+  @override
+  Widget build(BuildContext context) {
+    return IosCard(
+      child: Center(
+        child: Column(
+          children: [
+            Text(
+              '$streak',
+              style: const TextStyle(
+                color: iosBlue,
+                fontSize: 48,
+                fontWeight: FontWeight.w900,
+                height: 1,
               ),
-              const SizedBox(height: 10),
-              StatLine(label: 'Tarefas na rotina', value: '$totalTasks'),
-              const SizedBox(height: 10),
-              StatLine(label: 'Notas criadas', value: '${store.notes.length}'),
-            ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'dias seguidos',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class WeeklyBarsCard extends StatelessWidget {
+  const WeeklyBarsCard({super.key, required this.rates});
+
+  final List<DailyCompletionRate> rates;
+
+  @override
+  Widget build(BuildContext context) {
+    return IosCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Últimos 7 dias',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 180,
+            child: BarChart(
+              BarChartData(
+                minY: 0,
+                maxY: 100,
+                alignment: BarChartAlignment.spaceAround,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 25,
+                  getDrawingHorizontalLine: (value) => FlLine(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.08),
+                    strokeWidth: 1,
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 34,
+                      interval: 25,
+                      getTitlesWidget: (value, meta) => Text(
+                        '${value.toInt()}%',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (value, meta) {
+                        final index = value.toInt();
+                        if (index < 0 || index >= rates.length) {
+                          return const SizedBox.shrink();
+                        }
+                        return SideTitleWidget(
+                          axisSide: meta.axisSide,
+                          child: Text(
+                            weekDays[rates[index].date.weekday - 1].short,
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                barGroups: [
+                  for (var index = 0; index < rates.length; index++)
+                    BarChartGroupData(
+                      x: index,
+                      barRods: [
+                        BarChartRodData(
+                          toY: rates[index].percent,
+                          width: 16,
+                          color: rates[index].percent >= 100
+                              ? iosGreen
+                              : iosBlue,
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide:
+                              isSameDate(rates[index].date, DateTime.now())
+                              ? BorderSide(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
+                                  width: 1.5,
+                                )
+                              : BorderSide.none,
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HabitRatesSection extends StatelessWidget {
+  const HabitRatesSection({super.key, required this.rates});
+
+  final List<HabitCompletionRate> rates;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rates.isEmpty) {
+      return IosCard(
+        child: Text(
+          'Cadastre hábitos para acompanhar a taxa de conclusão.',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
           ),
         ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Taxa de conclusão por hábito',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        for (final rate in rates) ...[
+          HabitRateCard(rate: rate),
+          const SizedBox(height: 10),
+        ],
       ],
+    );
+  }
+}
+
+class HabitRateCard extends StatelessWidget {
+  const HabitRateCard({super.key, required this.rate});
+
+  final HabitCompletionRate rate;
+
+  Color get progressColor {
+    if (rate.percent >= 80) return iosGreen;
+    if (rate.percent >= 50) return iosBlue;
+    return iosRed;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = rate.percent.round();
+
+    return IosCard(
+      child: Row(
+        children: [
+          Text(rate.habit.icon, style: const TextStyle(fontSize: 24)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  rate.habit.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 8,
+                    value: rate.percent / 100,
+                    color: progressColor,
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '$percent%',
+            style: TextStyle(color: progressColor, fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2952,6 +3294,15 @@ List<DateTime> currentWeekDates(DateTime date) {
   return List.generate(7, (index) => start.add(Duration(days: index)));
 }
 
+List<DateTime> last7Dates() {
+  final today = DateTime.now();
+  final normalizedToday = DateTime(today.year, today.month, today.day);
+  return List.generate(
+    7,
+    (index) => normalizedToday.subtract(Duration(days: 6 - index)),
+  );
+}
+
 int weeklyScheduledGoals(List<Habit> habits, List<DateTime> week) {
   var total = 0;
   for (final habit in habits) {
@@ -2978,6 +3329,102 @@ bool isSameDate(DateTime left, DateTime right) =>
     left.year == right.year &&
     left.month == right.month &&
     left.day == right.day;
+
+HabitConsistency? mostConsistentHabit(HabitexStore store) {
+  if (store.habits.isEmpty) return null;
+
+  final dates = last7Dates();
+  final results = [
+    for (final habit in store.habits)
+      HabitConsistency(
+        habit: habit,
+        completedDays: dates.where((date) {
+          if (!habit.frequency.contains(dayId(date))) return false;
+          final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
+          return isHabitComplete(habit, value);
+        }).length,
+      ),
+  ];
+  results.sort((a, b) => b.completedDays.compareTo(a.completedDays));
+  return results.first;
+}
+
+int calcStreak(HabitexStore store) {
+  var streak = 0;
+  var day = DateTime.now();
+  while (true) {
+    final key = dateKey(day);
+    final progress = store.habitProgress[key] ?? {};
+    final habitsForDay = store.habits
+        .where((habit) => habit.frequency.contains(dayId(day)))
+        .toList();
+    if (habitsForDay.isEmpty) break;
+    final allDone = habitsForDay.every(
+      (habit) => isHabitComplete(habit, progress[habit.id] ?? 0),
+    );
+    if (!allDone) break;
+    streak++;
+    day = day.subtract(const Duration(days: 1));
+  }
+  return streak;
+}
+
+List<DailyCompletionRate> habitDailyCompletionRates(HabitexStore store) {
+  return [
+    for (final date in last7Dates())
+      DailyCompletionRate(
+        date: date,
+        percent: dailyHabitCompletionPercent(store, date),
+      ),
+  ];
+}
+
+double dailyHabitCompletionPercent(HabitexStore store, DateTime date) {
+  final habitsForDay = store.habits
+      .where((habit) => habit.frequency.contains(dayId(date)))
+      .toList();
+  if (habitsForDay.isEmpty) return 0;
+
+  final progress = store.habitProgress[dateKey(date)] ?? {};
+  final completed = habitsForDay.where((habit) {
+    return isHabitComplete(habit, progress[habit.id] ?? 0);
+  }).length;
+
+  return (completed / habitsForDay.length) * 100;
+}
+
+List<HabitCompletionRate> habitCompletionRates(HabitexStore store) {
+  final dates = last7Dates();
+  final rates = [
+    for (final habit in store.habits)
+      habitCompletionRateForDates(store, habit, dates),
+  ];
+  rates.sort((a, b) => b.percent.compareTo(a.percent));
+  return rates;
+}
+
+HabitCompletionRate habitCompletionRateForDates(
+  HabitexStore store,
+  Habit habit,
+  List<DateTime> dates,
+) {
+  var scheduledDays = 0;
+  var completedDays = 0;
+
+  for (final date in dates) {
+    if (!habit.frequency.contains(dayId(date))) continue;
+    scheduledDays++;
+    final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
+    if (isHabitComplete(habit, value)) completedDays++;
+  }
+
+  return HabitCompletionRate(
+    habit: habit,
+    completedDays: completedDays,
+    scheduledDays: scheduledDays,
+    percent: scheduledDays == 0 ? 0 : (completedDays / scheduledDays) * 100,
+  );
+}
 
 String normalizeHabitUnit(String unit) {
   final normalized = unit.toLowerCase();

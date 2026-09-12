@@ -34,6 +34,52 @@ void main() {
     expect(themeModeFromString('system'), ThemeMode.system);
   });
 
+  test('Habitex calculates habit statistics from progress', () {
+    final store = HabitexStore(onChanged: () {});
+    final today = DateTime.now();
+    final yesterday = today.subtract(const Duration(days: 1));
+    final allDays = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
+
+    store.habits = [
+      Habit(
+        id: 'agua',
+        icon: '💧',
+        name: 'Água',
+        type: 'counter',
+        goal: 1000,
+        unit: 'ml',
+        step: 500,
+        frequency: allDays,
+      ),
+      Habit(
+        id: 'ler',
+        icon: '📖',
+        name: 'Leitura',
+        type: 'counter',
+        goal: 10,
+        unit: 'páginas',
+        step: 1,
+        frequency: allDays,
+      ),
+    ];
+    store.habitProgress = {
+      dateKey(today): {'agua': 1000, 'ler': 10},
+      dateKey(yesterday): {'agua': 1000, 'ler': 2},
+    };
+
+    expect(calcStreak(store), 1);
+    expect(mostConsistentHabit(store)?.habit.id, 'agua');
+    expect(mostConsistentHabit(store)?.completedDays, 2);
+
+    final rates = habitCompletionRates(store);
+    expect(rates.first.habit.id, 'agua');
+    expect(
+      rates.first.percent.round(),
+      greaterThan(rates.last.percent.round()),
+    );
+    expect(dailyHabitCompletionPercent(store, today), 100);
+  });
+
   testWidgets('Habitex renders the routine tab', (tester) async {
     SharedPreferences.setMockInitialValues({});
 
