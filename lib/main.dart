@@ -1597,6 +1597,8 @@ class WeeklyBarsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasData = rates.any((entry) => entry.percent > 0);
+
     return IosCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1610,101 +1612,152 @@ class WeeklyBarsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          SizedBox(
-            height: 180,
-            child: BarChart(
-              BarChartData(
-                minY: 0,
-                maxY: 100,
-                alignment: BarChartAlignment.spaceAround,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 25,
-                  getDrawingHorizontalLine: (value) => FlLine(
+          if (!hasData)
+            Container(
+              height: 160,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    CupertinoIcons.chart_bar,
+                    size: 40,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.08),
-                    strokeWidth: 1,
+                    ).colorScheme.onSurface.withValues(alpha: 0.2),
                   ),
-                ),
-                borderData: FlBorderData(show: false),
-                titlesData: FlTitlesData(
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 34,
-                      interval: 25,
-                      getTitlesWidget: (value, meta) => Text(
-                        '${value.toInt()}%',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Nenhum dado ainda',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      getTitlesWidget: (value, meta) {
-                        final index = value.toInt();
-                        if (index < 0 || index >= rates.length) {
-                          return const SizedBox.shrink();
-                        }
-                        return SideTitleWidget(
-                          axisSide: meta.axisSide,
-                          child: Text(
-                            weekDays[rates[index].date.weekday - 1].short,
-                            style: TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'O gráfico será preenchido conforme você usa o app.',
+                    style: TextStyle(fontSize: 13, color: iosGray),
+                    textAlign: TextAlign.center,
                   ),
-                ),
-                barGroups: [
-                  for (var index = 0; index < rates.length; index++)
-                    BarChartGroupData(
-                      x: index,
-                      barRods: [
-                        BarChartRodData(
-                          toY: rates[index].percent,
-                          width: 16,
-                          color: rates[index].percent >= 100
-                              ? iosGreen
-                              : iosBlue,
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide:
-                              isSameDate(rates[index].date, DateTime.now())
-                              ? BorderSide(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface,
-                                  width: 1.5,
-                                )
-                              : BorderSide.none,
-                        ),
-                      ],
-                    ),
                 ],
               ),
+            )
+          else
+            Column(
+              children: [
+                SizedBox(
+                  height: 200,
+                  child: BarChart(
+                    BarChartData(
+                      minY: 0,
+                      maxY: 100,
+                      alignment: BarChartAlignment.spaceAround,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 25,
+                        getDrawingHorizontalLine: (value) => FlLine(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.08),
+                          strokeWidth: 1,
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 34,
+                            interval: 25,
+                            getTitlesWidget: (value, meta) => Text(
+                              '${value.toInt()}%',
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 30,
+                            getTitlesWidget: (value, meta) {
+                              final index = value.toInt();
+                              if (index < 0 || index >= rates.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return SideTitleWidget(
+                                axisSide: meta.axisSide,
+                                child: Text(
+                                  weekDays[rates[index].date.weekday - 1].short,
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      barGroups: [
+                        for (var index = 0; index < rates.length; index++)
+                          BarChartGroupData(
+                            x: index,
+                            barRods: [
+                              BarChartRodData(
+                                toY: rates[index].percent,
+                                width: 18,
+                                color: rates[index].percent == 0
+                                    ? Theme.of(context).colorScheme.onSurface
+                                          .withValues(alpha: 0.08)
+                                    : rates[index].percent >= 100
+                                    ? iosGreen
+                                    : iosBlue,
+                                borderRadius: BorderRadius.circular(6),
+                                borderSide:
+                                    isSameDate(
+                                      rates[index].date,
+                                      DateTime.now(),
+                                    )
+                                    ? BorderSide(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                        width: 1.5,
+                                      )
+                                    : BorderSide.none,
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'O gráfico será preenchido conforme você usa o app.',
+                  style: TextStyle(fontSize: 12, color: iosGray),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-          ),
         ],
       ),
     );
