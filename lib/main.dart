@@ -1,12 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:csv/csv.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -2646,25 +2650,303 @@ Future<void> reagendarNotifsHabito(Habit habit, List<String> hours) async {
   }
 }
 
-class ExportarPage extends StatelessWidget {
+class ExportarPage extends StatefulWidget {
   const ExportarPage({super.key, required this.store});
 
   final HabitexStore store;
+
+  @override
+  State<ExportarPage> createState() => _ExportarPageState();
+}
+
+class _ExportarPageState extends State<ExportarPage> {
+  String periodoSelecionado = 'semana';
+  bool carregando = false;
+
+  HabitexStore get store => widget.store;
+
+  DateTime? get startDate {
+    final today = DateTime.now();
+    final normalized = DateTime(today.year, today.month, today.day);
+    return switch (periodoSelecionado) {
+      'semana' => normalized.subtract(Duration(days: today.weekday - 1)),
+      'mes' => DateTime(today.year, today.month),
+      _ => null,
+    };
+  }
+
+  String labelPeriodo() {
+    return switch (periodoSelecionado) {
+      'semana' => 'Esta semana',
+      'mes' => 'Este mês',
+      _ => 'Tudo',
+    };
+  }
+
+  List<String> filteredProgressKeys() {
+    final start = startDate;
+    final keys = store.habitProgress.keys.where((key) {
+      if (start == null) return true;
+      final date = DateTime.tryParse(key);
+      if (date == null) return false;
+      return !date.isBefore(start);
+    }).toList();
+    keys.sort();
+    return keys;
+  }
+
+  int contarRegistros() {
+    var count = 0;
+    for (final key in filteredProgressKeys()) {
+      count += store.habitProgress[key]?.length ?? 0;
+    }
+    return count;
+  }
+
+  List<List<dynamic>> csvRows() {
+    final habitsById = {for (final habit in store.habits) habit.id: habit};
+    final rows = <List<dynamic>>[
+      [
+        'data',
+        'habito_id',
+        'habito',
+        'tipo',
+        'meta',
+        'unidade',
+        'progresso',
+        'concluido',
+      ],
+    ];
+
+    for (final key in filteredProgressKeys()) {
+      final progress = store.habitProgress[key] ?? {};
+      final habitIds = progress.keys.toList()..sort();
+      for (final habitId in habitIds) {
+        final habit = habitsById[habitId];
+        final value = progress[habitId] ?? 0;
+        rows.add([
+          key,
+          habitId,
+          habit?.name ?? 'Hábito removido',
+          habit?.type ?? '',
+          habit?.goal ?? '',
+          habit?.unit ?? '',
+          value,
+          habit == null ? '' : isHabitComplete(habit, value),
+        ]);
+      }
+    }
+
+    return rows;
+  }
+
+  Future<void> exportarCSV() async {
+    setState(() => carregando = true);
+    try {
+      final csv = const ListToCsvConverter().convert(csvRows());
+      final directory = await getTemporaryDirectory();
+      final path =
+          '${directory.path}/habitex_${periodoSelecionado}_${dateKey(DateTime.now())}.csv';
+      final file = File(path);
+      await file.writeAsString(csv);
+      await Share.shareXFiles([
+        XFile(path, mimeType: 'text/csv'),
+      ], text: 'Exportação HABITEX - ${labelPeriodo()}');
+    } finally {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return DrawerSubPageScaffold(
       title: 'Exportar Dados',
       children: [
-        IosCard(
-          child: Text(
-            'Em breve voce podera exportar rotina, notas e progresso dos habitos.',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
+        const SizedBox(height: 4),
+        Center(
+          child: Icon(CupertinoIcons.arrow_down_doc, color: iosBlue, size: 42),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Exportar Dados',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
           ),
         ),
+        const SizedBox(height: 6),
+        const Text(
+          'Escolha o período e exporte seus hábitos em CSV',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: iosGray, fontSize: 14),
+        ),
+        const SizedBox(height: 32),
+        IosCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Período',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<String>(
+                  groupValue: periodoSelecionado,
+                  children: const {
+                    'semana': Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('Esta semana'),
+                    ),
+                    'mes': Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('Este mês'),
+                    ),
+                    'tudo': Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('Tudo'),
+                    ),
+                  },
+                  onValueChanged: (value) {
+                    if (value != null) {
+                      setState(() => periodoSelecionado = value);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        ExportPreviewCard(
+          periodo: labelPeriodo(),
+          registros: contarRegistros(),
+          habitos: store.habits.length,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          child: CupertinoButton(
+            color: iosBlue,
+            borderRadius: BorderRadius.circular(14),
+            onPressed: carregando ? null : exportarCSV,
+            child: carregando
+                ? const CupertinoActivityIndicator(color: Colors.white)
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.share, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Exportar CSV',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'O arquivo será aberto no app de sua escolha (Arquivos, Google Drive, WhatsApp, etc.)',
+          style: TextStyle(fontSize: 12, color: iosGray),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class ExportPreviewCard extends StatelessWidget {
+  const ExportPreviewCard({
+    super.key,
+    required this.periodo,
+    required this.registros,
+    required this.habitos,
+  });
+
+  final String periodo;
+  final int registros;
+  final int habitos;
+
+  @override
+  Widget build(BuildContext context) {
+    return IosCard(
+      borderRadius: 16,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Resumo da exportação',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          PreviewRow(label: 'Período', value: periodo),
+          PreviewRow(label: 'Registros', value: '$registros entradas'),
+          PreviewRow(label: 'Hábitos', value: '$habitos hábitos'),
+          const PreviewRow(label: 'Formato', value: 'CSV (.csv)', last: true),
+        ],
+      ),
+    );
+  }
+}
+
+class PreviewRow extends StatelessWidget {
+  const PreviewRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.last = false,
+  });
+
+  final String label;
+  final String value;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(color: iosGray, fontSize: 13),
+              ),
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        if (!last)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Divider(
+              height: 1,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.08),
+            ),
+          ),
       ],
     );
   }
