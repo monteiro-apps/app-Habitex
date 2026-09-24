@@ -2665,74 +2665,84 @@ class _ExportarPageState extends State<ExportarPage> {
 
   HabitexStore get store => widget.store;
 
-  DateTime? get startDate {
-    final today = DateTime.now();
-    final normalized = DateTime(today.year, today.month, today.day);
-    return switch (periodoSelecionado) {
-      'semana' => normalized.subtract(Duration(days: today.weekday - 1)),
-      'mes' => DateTime(today.year, today.month),
-      _ => null,
-    };
-  }
-
   String labelPeriodo() {
     return switch (periodoSelecionado) {
-      'semana' => 'Esta semana',
-      'mes' => 'Este mês',
-      _ => 'Tudo',
+      'semana' => 'Últimos 7 dias',
+      'mes' => 'Últimos 30 dias',
+      'tudo' => 'Todo o histórico',
+      _ => '',
     };
   }
 
-  List<String> filteredProgressKeys() {
-    final start = startDate;
-    final keys = store.habitProgress.keys.where((key) {
-      if (start == null) return true;
-      final date = DateTime.tryParse(key);
-      if (date == null) return false;
-      return !date.isBefore(start);
-    }).toList();
-    keys.sort();
-    return keys;
+  List<DateTime> datasParaPeriodo(String periodo) {
+    final today = DateTime.now();
+    final dates = <DateTime>[];
+
+    switch (periodo) {
+      case 'semana':
+        for (var index = 6; index >= 0; index--) {
+          dates.add(today.subtract(Duration(days: index)));
+        }
+      case 'mes':
+        for (var index = 29; index >= 0; index--) {
+          dates.add(today.subtract(Duration(days: index)));
+        }
+      case 'tudo':
+        final keys = store.habitProgress.keys.toList()..sort();
+        for (final key in keys) {
+          final parts = key.split('-');
+          if (parts.length != 3) continue;
+          dates.add(
+            DateTime(
+              int.parse(parts[0]),
+              int.parse(parts[1]),
+              int.parse(parts[2]),
+            ),
+          );
+        }
+    }
+
+    return dates;
   }
 
   int contarRegistros() {
-    var count = 0;
-    for (final key in filteredProgressKeys()) {
-      count += store.habitProgress[key]?.length ?? 0;
+    final dates = datasParaPeriodo(periodoSelecionado);
+    var total = 0;
+
+    for (final date in dates) {
+      for (final habit in store.habits) {
+        if (habit.frequency.contains(dayId(date))) {
+          total++;
+        }
+      }
     }
-    return count;
+
+    return total;
   }
 
   List<List<dynamic>> csvRows() {
-    final habitsById = {for (final habit in store.habits) habit.id: habit};
+    final dates = datasParaPeriodo(periodoSelecionado);
     final rows = <List<dynamic>>[
-      [
-        'data',
-        'habito_id',
-        'habito',
-        'tipo',
-        'meta',
-        'unidade',
-        'progresso',
-        'concluido',
-      ],
+      ['Data', 'Hábito', 'Ícone', 'Progresso', 'Meta', 'Unidade', 'Concluído'],
     ];
 
-    for (final key in filteredProgressKeys()) {
-      final progress = store.habitProgress[key] ?? {};
-      final habitIds = progress.keys.toList()..sort();
-      for (final habitId in habitIds) {
-        final habit = habitsById[habitId];
-        final value = progress[habitId] ?? 0;
+    for (final date in dates) {
+      final key = dateKey(date);
+      final dayProgress = store.habitProgress[key] ?? {};
+
+      for (final habit in store.habits) {
+        if (!habit.frequency.contains(dayId(date))) continue;
+
+        final value = dayProgress[habit.id] ?? 0;
+        final complete = isHabitComplete(habit, value);
         rows.add([
           key,
-          habitId,
-          habit?.name ?? 'Hábito removido',
-          habit?.type ?? '',
-          habit?.goal ?? '',
-          habit?.unit ?? '',
+          habit.name,
+          habit.icon,
           value,
-          habit == null ? '' : isHabitComplete(habit, value),
+          habit.goal,
+          habit.unit,
+          complete ? 'Sim' : 'Não',
         ]);
       }
     }
@@ -2748,10 +2758,29 @@ class _ExportarPageState extends State<ExportarPage> {
       final path =
           '${directory.path}/habitex_${periodoSelecionado}_${dateKey(DateTime.now())}.csv';
       final file = File(path);
-      await file.writeAsString(csv);
-      await Share.shareXFiles([
-        XFile(path, mimeType: 'text/csv'),
-      ], text: 'Exportação HABITEX - ${labelPeriodo()}');
+      await file.writeAsString(csv, encoding: utf8);
+      await Share.shareXFiles(
+        [XFile(path, mimeType: 'text/csv')],
+        subject: 'HABITEX — Exportação de Hábitos',
+        text: 'Meus dados de hábitos exportados do HABITEX.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('Erro ao exportar'),
+          content: Text(
+            'Não foi possível gerar o arquivo. Tente novamente.\n\nDetalhes: $error',
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     } finally {
       if (mounted) setState(() => carregando = false);
     }
