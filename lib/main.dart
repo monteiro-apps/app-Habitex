@@ -2660,13 +2660,24 @@ class ExportarPage extends StatefulWidget {
 }
 
 class _ExportarPageState extends State<ExportarPage> {
-  String periodoSelecionado = 'semana';
-  bool carregando = false;
+  String _periodoSelecionado = 'semana';
+  bool _carregando = false;
 
   HabitexStore get store => widget.store;
 
-  String labelPeriodo() {
-    return switch (periodoSelecionado) {
+  String _dateKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  String _dayId(DateTime date) {
+    const days = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+    return days[date.weekday % 7];
+  }
+
+  String _labelPeriodo() {
+    return switch (_periodoSelecionado) {
       'semana' => 'Últimos 7 dias',
       'mes' => 'Últimos 30 dias',
       'tudo' => 'Todo o histórico',
@@ -2674,7 +2685,7 @@ class _ExportarPageState extends State<ExportarPage> {
     };
   }
 
-  List<DateTime> datasParaPeriodo(String periodo) {
+  List<DateTime> _datasParaPeriodo(String periodo) {
     final today = DateTime.now();
     final dates = <DateTime>[];
 
@@ -2705,13 +2716,13 @@ class _ExportarPageState extends State<ExportarPage> {
     return dates;
   }
 
-  int contarRegistros() {
-    final dates = datasParaPeriodo(periodoSelecionado);
+  int _contarRegistros() {
+    final dates = _datasParaPeriodo(_periodoSelecionado);
     var total = 0;
 
     for (final date in dates) {
       for (final habit in store.habits) {
-        if (habit.frequency.contains(dayId(date))) {
+        if (habit.frequency.contains(_dayId(date))) {
           total++;
         }
       }
@@ -2720,18 +2731,18 @@ class _ExportarPageState extends State<ExportarPage> {
     return total;
   }
 
-  List<List<dynamic>> csvRows() {
-    final dates = datasParaPeriodo(periodoSelecionado);
+  List<List<dynamic>> _csvRows() {
+    final dates = _datasParaPeriodo(_periodoSelecionado);
     final rows = <List<dynamic>>[
       ['Data', 'Hábito', 'Ícone', 'Progresso', 'Meta', 'Unidade', 'Concluído'],
     ];
 
     for (final date in dates) {
-      final key = dateKey(date);
+      final key = _dateKey(date);
       final dayProgress = store.habitProgress[key] ?? {};
 
       for (final habit in store.habits) {
-        if (!habit.frequency.contains(dayId(date))) continue;
+        if (!habit.frequency.contains(_dayId(date))) continue;
 
         final value = dayProgress[habit.id] ?? 0;
         final complete = isHabitComplete(habit, value);
@@ -2750,13 +2761,13 @@ class _ExportarPageState extends State<ExportarPage> {
     return rows;
   }
 
-  Future<void> exportarCSV() async {
-    setState(() => carregando = true);
+  Future<void> _exportarCSV() async {
+    setState(() => _carregando = true);
     try {
-      final csv = const ListToCsvConverter().convert(csvRows());
+      final csv = const ListToCsvConverter().convert(_csvRows());
       final directory = await getTemporaryDirectory();
       final path =
-          '${directory.path}/habitex_${periodoSelecionado}_${dateKey(DateTime.now())}.csv';
+          '${directory.path}/habitex_${_periodoSelecionado}_${_dateKey(DateTime.now())}.csv';
       final file = File(path);
       await file.writeAsString(csv, encoding: utf8);
       await Share.shareXFiles(
@@ -2782,7 +2793,7 @@ class _ExportarPageState extends State<ExportarPage> {
         ),
       );
     } finally {
-      if (mounted) setState(() => carregando = false);
+      if (mounted) setState(() => _carregando = false);
     }
   }
 
@@ -2827,7 +2838,7 @@ class _ExportarPageState extends State<ExportarPage> {
               SizedBox(
                 width: double.infinity,
                 child: CupertinoSlidingSegmentedControl<String>(
-                  groupValue: periodoSelecionado,
+                  groupValue: _periodoSelecionado,
                   children: const {
                     'semana': Padding(
                       padding: EdgeInsets.symmetric(horizontal: 12),
@@ -2844,7 +2855,7 @@ class _ExportarPageState extends State<ExportarPage> {
                   },
                   onValueChanged: (value) {
                     if (value != null) {
-                      setState(() => periodoSelecionado = value);
+                      setState(() => _periodoSelecionado = value);
                     }
                   },
                 ),
@@ -2854,8 +2865,8 @@ class _ExportarPageState extends State<ExportarPage> {
         ),
         const SizedBox(height: 16),
         ExportPreviewCard(
-          periodo: labelPeriodo(),
-          registros: contarRegistros(),
+          periodo: _labelPeriodo(),
+          registros: _contarRegistros(),
           habitos: store.habits.length,
         ),
         const SizedBox(height: 32),
@@ -2864,8 +2875,8 @@ class _ExportarPageState extends State<ExportarPage> {
           child: CupertinoButton(
             color: iosBlue,
             borderRadius: BorderRadius.circular(14),
-            onPressed: carregando ? null : exportarCSV,
-            child: carregando
+            onPressed: _carregando ? null : _exportarCSV,
+            child: _carregando
                 ? const CupertinoActivityIndicator(color: Colors.white)
                 : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
