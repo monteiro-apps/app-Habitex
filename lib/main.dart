@@ -3256,165 +3256,192 @@ class HabitWeekCalendar extends StatelessWidget {
     return IosCard(
       borderRadius: 18,
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const habitLabelWidth = 104.0;
+          final cellWidth = (constraints.maxWidth - habitLabelWidth) / 7;
+          const dayLabels = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  'Calendário semanal',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: iosBlue.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '$completion%',
-                  style: const TextStyle(
-                    color: iosBlue,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$completedGoals de $scheduledGoals metas batidas nesta semana',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const SizedBox(width: 104),
-              for (final date in week)
-                Expanded(
-                  child: Column(
-                    children: [
-                      Text(
-                        weekDays[date.weekday - 1].short,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Calendário semanal',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(height: 5),
-                      Container(
-                        width: 28,
-                        height: 28,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: isSameDate(date, DateTime.now())
-                              ? iosBlue
-                              : Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          '${date.day}',
-                          style: TextStyle(
-                            color: isSameDate(date, DateTime.now())
-                                ? Colors.white
-                                : Theme.of(context).colorScheme.onSurface,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: iosBlue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$completion%',
+                      style: const TextStyle(
+                        color: iosBlue,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$completedGoals de $scheduledGoals metas batidas nesta semana',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const SizedBox(width: 104),
+                  for (var index = 0; index < week.length; index++)
+                    Builder(
+                      builder: (context) {
+                        final date = week[index];
+                        return SizedBox(
+                          width: cellWidth,
+                          child: Column(
+                            children: [
+                              Text(
+                                dayLabels[index],
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.visible,
+                                softWrap: false,
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Container(
+                                width: 28,
+                                height: 28,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isSameDate(date, DateTime.now())
+                                      ? iosBlue
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  '${date.day}',
+                                  style: TextStyle(
+                                    color: isSameDate(date, DateTime.now())
+                                        ? Colors.white
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onSurface,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (store.habits.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'Crie seu primeiro hábito para ver a semana.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                for (final habit in store.habits)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 104,
+                          child: Row(
+                            children: [
+                              Text(
+                                habit.icon,
+                                style: const TextStyle(fontSize: 18),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  habit.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w900,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (store.habits.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Center(
-                child: Text(
-                  'Crie seu primeiro hábito para ver a semana.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            )
-          else
-            for (final habit in store.habits)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 104,
-                      child: Row(
-                        children: [
-                          Text(
-                            habit.icon,
-                            style: const TextStyle(fontSize: 18),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              habit.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                                color: Theme.of(context).colorScheme.onSurface,
+                        for (final date in week)
+                          SizedBox(
+                            width: cellWidth,
+                            child: Center(
+                              child: HabitDot(
+                                active: isHabitComplete(
+                                  habit,
+                                  store.habitProgress[dateKey(
+                                        date,
+                                      )]?[habit.id] ??
+                                      0,
+                                ),
+                                scheduled: habit.frequency.contains(
+                                  dayId(date),
+                                ),
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                      ],
                     ),
-                    for (final date in week)
-                      Expanded(
-                        child: Center(
-                          child: HabitDot(
-                            active: isHabitComplete(
-                              habit,
-                              store.habitProgress[dateKey(date)]?[habit.id] ??
-                                  0,
-                            ),
-                            scheduled: habit.frequency.contains(dayId(date)),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+              const Divider(height: 14),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CalendarLegendDot(color: iosGreen, label: 'Batida'),
+                  SizedBox(width: 12),
+                  CalendarLegendDot(color: iosRed, label: 'Pendente'),
+                  SizedBox(width: 12),
+                  CalendarLegendDot(color: calendarFree, label: 'Livre'),
+                ],
               ),
-          const Divider(height: 14),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CalendarLegendDot(color: iosGreen, label: 'Batida'),
-              SizedBox(width: 12),
-              CalendarLegendDot(color: iosRed, label: 'Pendente'),
-              SizedBox(width: 12),
-              CalendarLegendDot(color: calendarFree, label: 'Livre'),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
