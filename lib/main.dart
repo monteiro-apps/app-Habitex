@@ -855,12 +855,14 @@ class _NotasPageState extends State<NotasPage> {
               GestureDetector(
                 onTap: () => openNote(note),
                 child: IosCard(
+                  padding: const EdgeInsets.all(12),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         note.title,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -878,13 +880,17 @@ class _NotasPageState extends State<NotasPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      Text(
-                        note.body.isEmpty ? 'Nota vazia' : note.body,
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          height: 1.35,
+                      Flexible(
+                        fit: FlexFit.loose,
+                        child: Text(
+                          note.body.isEmpty ? 'Nota vazia' : note.body,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
                         ),
                       ),
                     ],
@@ -1374,10 +1380,21 @@ class DrawerSubPageScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+    final w = MediaQuery.of(context).size.width;
+    final paddingH = w * 0.042;
+    final paddingTop = w * 0.040;
+    final paddingBottom = w * 0.072;
+    final gap = w * 0.020;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(
+          paddingH,
+          paddingTop,
+          paddingH,
+          paddingBottom,
+        ),
         children: [
           Row(
             children: [
@@ -1387,16 +1404,16 @@ class DrawerSubPageScaffold extends StatelessWidget {
                 child: Icon(
                   CupertinoIcons.chevron_left,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  size: 24,
+                  size: w * 0.061,
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: gap),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 22,
+                    fontSize: w * 0.055,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -1404,7 +1421,7 @@ class DrawerSubPageScaffold extends StatelessWidget {
               ?trailing,
             ],
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: w * 0.050),
           ...children,
         ],
       ),
@@ -1419,29 +1436,80 @@ class EstatisticasPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final statsUi = StatsResponsiveUi.fromWidth(
+      MediaQuery.of(context).size.width,
+    );
     final highlight = mostConsistentHabit(store);
     final allStreaks = habitStreaks(store);
-    final bestStreak = allStreaks.isEmpty ? null : allStreaks.first;
-    final otherStreaks = allStreaks
-        .skip(1)
-        .where((streak) => streak.days > 0)
-        .toList();
     final dailyRates = habitDailyCompletionRates(store);
     final habitRates = habitCompletionRates(store);
 
     return DrawerSubPageScaffold(
       title: 'Estatísticas',
       children: [
-        ConsistentHabitCard(highlight: highlight),
-        const SizedBox(height: 14),
-        StreakCard(best: bestStreak, others: otherStreaks),
-        const SizedBox(height: 14),
-        WeeklyBarsCard(rates: dailyRates),
-        const SizedBox(height: 14),
-        HabitRatesSection(rates: habitRates),
+        ConsistentHabitCard(highlight: highlight, ui: statsUi),
+        SizedBox(height: statsUi.espacoEntreBlocos),
+        StreakCard(ranking: allStreaks, ui: statsUi),
+        SizedBox(height: statsUi.espacoEntreBlocos),
+        WeeklyBarsCard(rates: dailyRates, ui: statsUi),
+        SizedBox(height: statsUi.espacoEntreBlocos),
+        HabitRatesSection(rates: habitRates, ui: statsUi),
       ],
     );
   }
+}
+
+class StatsResponsiveUi {
+  const StatsResponsiveUi._({
+    required this.fonteTituloGrande,
+    required this.fonteTitulo,
+    required this.fonteCorpo,
+    required this.fonteSecundaria,
+    required this.fonteLabelGrafico,
+    required this.fonteStreakNumero,
+    required this.paddingH,
+    required this.paddingCard,
+    required this.espacoEntreBlocos,
+    required this.alturaGrafico,
+    required this.reservedSizeEixoY,
+    required this.larguraBarra,
+    required this.tamanhoIconeCard,
+    required this.tamanhoIconeMini,
+  });
+
+  factory StatsResponsiveUi.fromWidth(double w) {
+    return StatsResponsiveUi._(
+      fonteTituloGrande: w * 0.055,
+      fonteTitulo: w * 0.043,
+      fonteCorpo: w * 0.035,
+      fonteSecundaria: w * 0.030,
+      fonteLabelGrafico: w * 0.026,
+      fonteStreakNumero: w * 0.075,
+      paddingH: w * 0.042,
+      paddingCard: w * 0.038,
+      espacoEntreBlocos: w * 0.040,
+      alturaGrafico: w * 0.480,
+      reservedSizeEixoY: w * 0.115,
+      larguraBarra: w * 0.046,
+      tamanhoIconeCard: w * 0.072,
+      tamanhoIconeMini: w * 0.050,
+    );
+  }
+
+  final double fonteTituloGrande;
+  final double fonteTitulo;
+  final double fonteCorpo;
+  final double fonteSecundaria;
+  final double fonteLabelGrafico;
+  final double fonteStreakNumero;
+  final double paddingH;
+  final double paddingCard;
+  final double espacoEntreBlocos;
+  final double alturaGrafico;
+  final double reservedSizeEixoY;
+  final double larguraBarra;
+  final double tamanhoIconeCard;
+  final double tamanhoIconeMini;
 }
 
 class HabitConsistency {
@@ -1485,9 +1553,14 @@ class HabitStreak {
 }
 
 class ConsistentHabitCard extends StatelessWidget {
-  const ConsistentHabitCard({super.key, required this.highlight});
+  const ConsistentHabitCard({
+    super.key,
+    required this.highlight,
+    required this.ui,
+  });
 
   final HabitConsistency? highlight;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
@@ -1496,53 +1569,67 @@ class ConsistentHabitCard extends StatelessWidget {
     final scheduledDays = highlight?.scheduledDays ?? 0;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 16, 16, 16),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: ui.paddingCard,
+        vertical: ui.paddingCard * 0.85,
+      ),
       decoration: BoxDecoration(
         color: iosGreen.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: const Border(left: BorderSide(color: iosGreen, width: 4)),
       ),
       child: habit == null
-          ? const Text(
+          ? Text(
               'Cadastre hábitos para ver seu destaque semanal.',
-              style: TextStyle(color: iosGreen, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: iosGreen,
+                fontSize: ui.fonteCorpo,
+                fontWeight: FontWeight.w800,
+              ),
             )
           : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(habit.icon, style: const TextStyle(fontSize: 28)),
-                const SizedBox(width: 12),
+                Text(
+                  habit.icon,
+                  style: TextStyle(fontSize: ui.tamanhoIconeCard),
+                ),
+                SizedBox(width: ui.paddingCard * 0.6),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
+                      Text(
                         'Hábito mais consistente',
                         style: TextStyle(
                           color: iosGreen,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                          fontSize: ui.fonteSecundaria,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: ui.paddingH * 0.24),
                       Text(
                         habit.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: iosGreen,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
+                          fontSize: ui.fonteTitulo,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                 ),
+                SizedBox(width: ui.paddingH * 0.48),
                 Text(
                   '$count/$scheduledDays dias',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: iosGreen,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontSize: ui.fonteCorpo,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
@@ -1552,25 +1639,25 @@ class ConsistentHabitCard extends StatelessWidget {
 }
 
 class StreakCard extends StatelessWidget {
-  const StreakCard({super.key, required this.best, required this.others});
+  const StreakCard({super.key, required this.ranking, required this.ui});
 
-  final HabitStreak? best;
-  final List<HabitStreak> others;
+  final List<HabitStreak> ranking;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
-    final bestStreak = best;
-
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: EdgeInsets.all(ui.paddingCard),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Color(0x0A000000),
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.04),
             blurRadius: 8,
-            offset: Offset(0, 3),
           ),
         ],
       ),
@@ -1579,189 +1666,116 @@ class StreakCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Text('🔥', style: TextStyle(fontSize: 18)),
-              const SizedBox(width: 6),
+              Text('🔥', style: TextStyle(fontSize: ui.tamanhoIconeMini)),
+              SizedBox(width: ui.paddingH * 0.36),
               Text(
-                'Maior sequência ativa',
+                'Ranking de sequências',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: ui.fonteSecundaria,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          if (bestStreak == null)
+          SizedBox(height: ui.paddingH * 0.72),
+          if (ranking.isEmpty)
             Text(
               'Cadastre hábitos para iniciar sua sequência.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 13,
+                fontSize: ui.fonteSecundaria,
                 fontWeight: FontWeight.w700,
               ),
             )
-          else ...[
-            Row(
-              children: [
-                Text(
-                  bestStreak.habit.icon,
-                  style: const TextStyle(fontSize: 22),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    bestStreak.habit.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${bestStreak.days}',
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: iosBlue,
-                        ),
-                      ),
-                      TextSpan(
-                        text: ' ${bestStreak.days == 1 ? 'dia' : 'dias'}',
-                        style: const TextStyle(fontSize: 13, color: iosGray),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (others.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Divider(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.1),
-              ),
-              const SizedBox(height: 8),
-              if (others.length == 1)
-                StreakSecondaryRow(streak: others.first)
-              else
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    for (final streak in others.take(3))
-                      Expanded(child: StreakMiniCard(streak: streak)),
-                  ],
-                ),
-            ],
-            if (bestStreak.days == 0)
+          else
+            for (final entry in ranking.asMap().entries)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Complete um hábito hoje para iniciar sua sequência.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
+                padding: EdgeInsets.only(bottom: ui.paddingH * 0.6),
+                child: StreakRankingItem(
+                  position: entry.key,
+                  streak: entry.value,
+                  ui: ui,
                 ),
               ),
-          ],
         ],
       ),
     );
   }
 }
 
-class StreakSecondaryRow extends StatelessWidget {
-  const StreakSecondaryRow({super.key, required this.streak});
+class StreakRankingItem extends StatelessWidget {
+  const StreakRankingItem({
+    super.key,
+    required this.position,
+    required this.streak,
+    required this.ui,
+  });
 
+  final int position;
   final HabitStreak streak;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
+    final first = position == 0;
+    final noStreak = streak.days == 0;
+    final label = switch (position) {
+      0 => '🥇',
+      1 => '🥈',
+      2 => '🥉',
+      _ => '${position + 1}',
+    };
+    final medal = position <= 2;
+    final fontSize = first ? ui.fonteCorpo + 1 : ui.fonteCorpo;
+    final textColor = noStreak
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : Theme.of(context).colorScheme.onSurface;
+    final daysColor = noStreak
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : iosBlue;
+
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(
-          child: Row(
-            children: [
-              Text(streak.habit.icon, style: const TextStyle(fontSize: 22)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  streak.habit.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+        SizedBox(
+          width: ui.paddingH * 1.8,
+          child: medal
+              ? Text(label, style: TextStyle(fontSize: ui.tamanhoIconeMini))
+              : Text(
+                  label,
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: ui.fonteSecundaria,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ],
-          ),
         ),
-        const SizedBox(width: 12),
-        RichText(
-          text: TextSpan(
-            children: [
-              TextSpan(
-                text: '${streak.days}',
-                style: const TextStyle(
-                  color: iosBlue,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              TextSpan(
-                text: ' ${streak.days == 1 ? 'dia' : 'dias'}',
-                style: const TextStyle(color: iosGray, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class StreakMiniCard extends StatelessWidget {
-  const StreakMiniCard({super.key, required this.streak});
-
-  final HabitStreak streak;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(streak.habit.icon, style: const TextStyle(fontSize: 16)),
-        const SizedBox(height: 2),
+        SizedBox(width: ui.paddingH * 0.36),
         Text(
-          '${streak.days}${streak.days == 1 ? ' dia' : 'd'}',
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: iosBlue,
+          streak.habit.icon,
+          style: TextStyle(fontSize: ui.tamanhoIconeMini),
+        ),
+        SizedBox(width: ui.paddingH * 0.48),
+        Expanded(
+          child: Text(
+            streak.habit.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: first ? FontWeight.w600 : FontWeight.w500,
+              color: textColor,
+            ),
           ),
         ),
-        const SizedBox(height: 1),
+        SizedBox(width: ui.paddingH * 0.48),
         Text(
-          streak.habit.name.length > 7
-              ? '${streak.habit.name.substring(0, 7)}…'
-              : streak.habit.name,
+          '${streak.days} ${streak.days == 1 ? 'dia' : 'dias'}',
           style: TextStyle(
-            fontSize: 10,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            color: daysColor,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -1770,15 +1784,31 @@ class StreakMiniCard extends StatelessWidget {
 }
 
 class WeeklyBarsCard extends StatelessWidget {
-  const WeeklyBarsCard({super.key, required this.rates});
+  const WeeklyBarsCard({super.key, required this.rates, required this.ui});
 
   final List<DailyCompletionRate> rates;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
     final hasData = rates.any((entry) => entry.percent > 0);
 
-    return IosCard(
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(ui.paddingCard),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1786,38 +1816,41 @@ class WeeklyBarsCard extends StatelessWidget {
             'Últimos 7 dias',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
+              fontSize: ui.fonteTitulo,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: ui.espacoEntreBlocos),
           if (!hasData)
             Container(
-              height: 160,
+              height: ui.alturaGrafico * 0.85,
               alignment: Alignment.center,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     CupertinoIcons.chart_bar,
-                    size: 40,
+                    size: ui.tamanhoIconeCard * 1.4,
                     color: Theme.of(
                       context,
                     ).colorScheme.onSurface.withValues(alpha: 0.2),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: ui.paddingCard * 0.75),
                   Text(
                     'Nenhum dado ainda',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 15,
+                      fontSize: ui.fonteCorpo,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
+                  SizedBox(height: ui.paddingCard * 0.25),
+                  Text(
                     'O gráfico será preenchido conforme você usa o app.',
-                    style: TextStyle(fontSize: 13, color: iosGray),
+                    style: TextStyle(
+                      fontSize: ui.fonteSecundaria,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -1827,12 +1860,27 @@ class WeeklyBarsCard extends StatelessWidget {
             Column(
               children: [
                 SizedBox(
-                  height: 200,
+                  height: ui.alturaGrafico,
+                  width: double.infinity,
                   child: BarChart(
                     BarChartData(
                       minY: 0,
                       maxY: 100,
                       alignment: BarChartAlignment.spaceAround,
+                      barTouchData: BarTouchData(
+                        touchTooltipData: BarTouchTooltipData(
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                            return BarTooltipItem(
+                              '${rod.toY.toInt()}%',
+                              TextStyle(
+                                color: Theme.of(context).colorScheme.surface,
+                                fontSize: ui.fonteSecundaria,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
@@ -1855,39 +1903,62 @@ class WeeklyBarsCard extends StatelessWidget {
                         leftTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
-                            reservedSize: 34,
+                            reservedSize: ui.reservedSizeEixoY,
                             interval: 25,
-                            getTitlesWidget: (value, meta) => Text(
-                              '${value.toInt()}%',
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            getTitlesWidget: (value, meta) {
+                              if (value % 25 != 0) {
+                                return const SizedBox.shrink();
+                              }
+                              return SizedBox(
+                                width: ui.reservedSizeEixoY,
+                                child: Text(
+                                  '${value.toInt()}%',
+                                  textAlign: TextAlign.right,
+                                  softWrap: false,
+                                  overflow: TextOverflow.visible,
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                    fontSize: ui.fonteLabelGrafico,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                         bottomTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
-                            reservedSize: 30,
+                            reservedSize: ui.paddingH * 1.55,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
-                              if (index < 0 || index >= rates.length) {
+                              if (index < 0 || index >= 7) {
                                 return const SizedBox.shrink();
                               }
-                              return SideTitleWidget(
-                                axisSide: meta.axisSide,
+                              const dayLabels = [
+                                'S',
+                                'T',
+                                'Q',
+                                'Q',
+                                'S',
+                                'S',
+                                'D',
+                              ];
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  top: ui.paddingH * 0.24,
+                                ),
                                 child: Text(
-                                  weekDays[rates[index].date.weekday - 1].short,
+                                  dayLabels[rates[index].date.weekday - 1],
+                                  textAlign: TextAlign.center,
+                                  softWrap: false,
                                   style: TextStyle(
                                     color: Theme.of(
                                       context,
                                     ).colorScheme.onSurfaceVariant,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
+                                    fontSize: ui.fonteLabelGrafico,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               );
@@ -1902,14 +1973,16 @@ class WeeklyBarsCard extends StatelessWidget {
                             barRods: [
                               BarChartRodData(
                                 toY: rates[index].percent,
-                                width: 18,
+                                width: ui.larguraBarra,
                                 color: rates[index].percent == 0
                                     ? Theme.of(context).colorScheme.onSurface
                                           .withValues(alpha: 0.08)
                                     : rates[index].percent >= 100
                                     ? iosGreen
                                     : iosBlue,
-                                borderRadius: BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(
+                                  ui.larguraBarra * 0.33,
+                                ),
                                 borderSide:
                                     isSameDate(
                                       rates[index].date,
@@ -1929,10 +2002,13 @@ class WeeklyBarsCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
+                SizedBox(height: ui.paddingH * 0.6),
+                Text(
                   'O gráfico será preenchido conforme você usa o app.',
-                  style: TextStyle(fontSize: 12, color: iosGray),
+                  style: TextStyle(
+                    fontSize: ui.fonteLabelGrafico,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -1944,18 +2020,21 @@ class WeeklyBarsCard extends StatelessWidget {
 }
 
 class HabitRatesSection extends StatelessWidget {
-  const HabitRatesSection({super.key, required this.rates});
+  const HabitRatesSection({super.key, required this.rates, required this.ui});
 
   final List<HabitCompletionRate> rates;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
     if (rates.isEmpty) {
       return IosCard(
+        padding: EdgeInsets.all(ui.paddingCard),
         child: Text(
           'Cadastre hábitos para acompanhar a taxa de conclusão.',
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: ui.fonteCorpo,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1969,14 +2048,14 @@ class HabitRatesSection extends StatelessWidget {
           'Taxa de conclusão por hábito',
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurface,
-            fontSize: 17,
+            fontSize: ui.fonteTitulo,
             fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: ui.paddingCard * 0.65),
         for (final rate in rates) ...[
-          HabitRateCard(rate: rate),
-          const SizedBox(height: 10),
+          HabitRateCard(rate: rate, ui: ui),
+          SizedBox(height: ui.paddingCard * 0.65),
         ],
       ],
     );
@@ -1984,52 +2063,80 @@ class HabitRatesSection extends StatelessWidget {
 }
 
 class HabitRateCard extends StatelessWidget {
-  const HabitRateCard({super.key, required this.rate});
+  const HabitRateCard({super.key, required this.rate, required this.ui});
 
   final HabitCompletionRate rate;
+  final StatsResponsiveUi ui;
 
   @override
   Widget build(BuildContext context) {
     final percent = (rate.percent * 100).round();
     final progressColor = corDoPercentual(rate.percent);
 
-    return IosCard(
+    return Container(
+      padding: EdgeInsets.all(ui.paddingCard),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
       child: Row(
         children: [
-          Text(rate.habit.icon, style: const TextStyle(fontSize: 24)),
-          const SizedBox(width: 12),
+          Text(
+            rate.habit.icon,
+            style: TextStyle(fontSize: ui.tamanhoIconeCard),
+          ),
+          SizedBox(width: ui.paddingH * 0.72),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  rate.habit.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        rate.habit.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: ui.fonteCorpo,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: ui.paddingH * 0.48),
+                    Text(
+                      '$percent%',
+                      style: TextStyle(
+                        color: progressColor,
+                        fontSize: ui.fonteCorpo,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    minHeight: 8,
-                    value: rate.percent,
-                    valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.08),
-                  ),
+                SizedBox(height: ui.paddingH * 0.36),
+                LinearProgressIndicator(
+                  minHeight: ui.paddingH * 0.36,
+                  borderRadius: BorderRadius.circular(99),
+                  value: rate.percent,
+                  valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.08),
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            '$percent%',
-            style: TextStyle(color: progressColor, fontWeight: FontWeight.w900),
           ),
         ],
       ),
@@ -3411,17 +3518,18 @@ class HabitWeekCalendar extends StatelessWidget {
                           SizedBox(
                             width: cellWidth,
                             child: Center(
-                              child: HabitDot(
-                                active: isHabitComplete(
-                                  habit,
-                                  store.habitProgress[dateKey(
-                                        date,
-                                      )]?[habit.id] ??
-                                      0,
-                                ),
-                                scheduled: habit.frequency.contains(
-                                  dayId(date),
-                                ),
+                              child: Builder(
+                                builder: (context) {
+                                  final dotColor = habitCalendarDotColor(
+                                    habit,
+                                    date,
+                                    store.habitProgress,
+                                  );
+                                  return HabitDot(
+                                    color: dotColor,
+                                    complete: dotColor == iosGreen,
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -3481,10 +3589,10 @@ class CalendarLegendDot extends StatelessWidget {
 }
 
 class HabitDot extends StatelessWidget {
-  const HabitDot({super.key, required this.active, required this.scheduled});
+  const HabitDot({super.key, required this.color, required this.complete});
 
-  final bool active;
-  final bool scheduled;
+  final Color color;
+  final bool complete;
 
   @override
   Widget build(BuildContext context) {
@@ -3492,15 +3600,8 @@ class HabitDot extends StatelessWidget {
       duration: const Duration(milliseconds: 180),
       width: 24,
       height: 24,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: active
-            ? iosGreen
-            : scheduled
-            ? iosRed
-            : calendarFree,
-      ),
-      child: active
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      child: complete
           ? const Icon(CupertinoIcons.check_mark, color: Colors.white, size: 14)
           : null,
     );
@@ -4616,6 +4717,24 @@ bool isSameDate(DateTime left, DateTime right) =>
     left.month == right.month &&
     left.day == right.day;
 
+Color habitCalendarDotColor(
+  Habit habit,
+  DateTime date,
+  Map<String, Map<String, int>> habitProgress,
+) {
+  final today = DateTime.now();
+  final normalizedToday = DateTime(today.year, today.month, today.day);
+  final normalizedDate = DateTime(date.year, date.month, date.day);
+  final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
+  final scheduled = habit.frequency.contains(dayId(date));
+  final complete = isHabitComplete(habit, value);
+
+  if (normalizedDate.isAfter(normalizedToday)) return calendarFree;
+  if (complete) return iosGreen;
+  if (scheduled) return iosRed;
+  return calendarFree;
+}
+
 HabitConsistency? mostConsistentHabit(HabitexStore store) {
   if (store.habits.isEmpty) return null;
 
@@ -4624,9 +4743,8 @@ HabitConsistency? mostConsistentHabit(HabitexStore store) {
     for (final habit in store.habits)
       HabitConsistency(
         habit: habit,
-        scheduledDays: diasAgendadosNaSemana(habit),
+        scheduledDays: diasRelevantesNaSemana(habit, store.habitProgress),
         completedDays: dates.where((date) {
-          if (!habit.frequency.contains(dayId(date))) return false;
           final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
           return isHabitComplete(habit, value);
         }).length,
@@ -4634,6 +4752,32 @@ HabitConsistency? mostConsistentHabit(HabitexStore store) {
   ];
   results.sort((a, b) => b.completedDays.compareTo(a.completedDays));
   return results.first;
+}
+
+bool shouldCountHabitStatDay(
+  Habit habit,
+  DateTime date,
+  Map<String, Map<String, int>> habitProgress,
+) {
+  final value = habitProgress[dateKey(date)]?[habit.id] ?? 0;
+  return habit.frequency.contains(dayId(date)) || value > 0;
+}
+
+int diasRelevantesNaSemana(
+  Habit habit,
+  Map<String, Map<String, int>> habitProgress,
+) {
+  var count = 0;
+  for (var index = 0; index < 7; index++) {
+    final date = DateTime.now().subtract(Duration(days: index));
+    final weekday = dayId(date);
+    final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
+    final scheduled = habit.frequency.contains(weekday);
+    final hasProgress = value > 0;
+
+    if (scheduled || hasProgress) count++;
+  }
+  return count;
 }
 
 int diasAgendadosNaSemana(Habit habit) {
@@ -4654,18 +4798,18 @@ int calcStreakPorHabito(
   for (var index = 0; index < 365; index++) {
     final key = dateKey(day);
     final weekday = dayId(day);
+    final value = habitProgress[key]?[habit.id] ?? 0;
+    final scheduled = habit.frequency.contains(weekday);
+    final complete = isHabitComplete(habit, value);
 
-    if (!habit.frequency.contains(weekday)) {
+    if (complete) {
+      streak += 1;
       day = day.subtract(const Duration(days: 1));
-      continue;
+    } else if (!scheduled) {
+      day = day.subtract(const Duration(days: 1));
+    } else {
+      break;
     }
-
-    final progress = habitProgress[key] ?? {};
-    final value = progress[habit.id] ?? 0;
-    if (!isHabitComplete(habit, value)) break;
-
-    streak += 1;
-    day = day.subtract(const Duration(days: 1));
   }
   return streak;
 }
@@ -4694,7 +4838,9 @@ List<DailyCompletionRate> habitDailyCompletionRates(HabitexStore store) {
 
 double dailyHabitCompletionPercent(HabitexStore store, DateTime date) {
   final habitsForDay = store.habits
-      .where((habit) => habit.frequency.contains(dayId(date)))
+      .where(
+        (habit) => shouldCountHabitStatDay(habit, date, store.habitProgress),
+      )
       .toList();
   if (habitsForDay.isEmpty) return 0;
 
@@ -4720,22 +4866,20 @@ double calcPercentualHabito(
   Habit habit,
   Map<String, Map<String, int>> habitProgress,
 ) {
-  var scheduledDays = 0;
+  var countedDays = 0;
   var completedDays = 0;
 
   for (var index = 0; index < 7; index++) {
     final date = DateTime.now().subtract(Duration(days: index));
-    final weekday = dayId(date);
-    if (!habit.frequency.contains(weekday)) continue;
-
-    scheduledDays++;
+    if (!shouldCountHabitStatDay(habit, date, habitProgress)) continue;
 
     final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
+    countedDays++;
     if (isHabitComplete(habit, value)) completedDays++;
   }
 
-  if (scheduledDays == 0) return 0;
-  return completedDays / scheduledDays;
+  if (countedDays == 0) return 0;
+  return completedDays / countedDays;
 }
 
 HabitCompletionRate habitCompletionRateForDates(
@@ -4743,12 +4887,12 @@ HabitCompletionRate habitCompletionRateForDates(
   Habit habit,
   List<DateTime> dates,
 ) {
-  var scheduledDays = 0;
+  var countedDays = 0;
   var completedDays = 0;
 
   for (final date in dates) {
-    if (!habit.frequency.contains(dayId(date))) continue;
-    scheduledDays++;
+    if (!shouldCountHabitStatDay(habit, date, store.habitProgress)) continue;
+    countedDays++;
     final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
     if (isHabitComplete(habit, value)) completedDays++;
   }
@@ -4756,7 +4900,7 @@ HabitCompletionRate habitCompletionRateForDates(
   return HabitCompletionRate(
     habit: habit,
     completedDays: completedDays,
-    scheduledDays: scheduledDays,
+    scheduledDays: countedDays,
     percent: calcPercentualHabito(habit, store.habitProgress),
   );
 }
