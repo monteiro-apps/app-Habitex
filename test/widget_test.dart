@@ -4,9 +4,26 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habitex/main.dart';
+import 'package:habitex/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  Map<String, Object> loggedInPrefs([Map<String, Object> extra = const {}]) {
+    return {
+      'habitex.auth.logado': true,
+      'habitex.auth.email': 'jenny@habitex.app',
+      'habitex.auth.apelido': 'Jenny',
+      ...extra,
+    };
+  }
+
+  Future<void> pumpHabitexApp(WidgetTester tester) async {
+    await tester.pumpWidget(const HabitexApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1600));
+    await tester.pumpAndSettle();
+  }
+
   test('Habitex normalizes common habit units', () {
     expect(normalizeHabitUnit('paginas'), 'páginas');
     expect(normalizeHabitUnit('pagina'), 'página');
@@ -26,6 +43,44 @@ void main() {
 
     expect(habit.step, 500);
     expect(habit.toJson()['practiceStep'], 500);
+  });
+
+  test('Habitex edits a habit without changing progress history', () async {
+    final store = HabitexStore(onChanged: () {});
+    final todayKey = dateKey(DateTime.now());
+    store.habits = [
+      Habit(
+        id: 'agua',
+        icon: '💧',
+        name: 'Água',
+        type: 'counter',
+        goal: 3000,
+        unit: 'ml',
+        step: 500,
+        frequency: const ['seg'],
+      ),
+    ];
+    store.habitProgress = {
+      todayKey: {'agua': 1500},
+    };
+
+    await store.editarHabito(
+      Habit(
+        id: 'agua',
+        icon: '🚰',
+        name: 'Hidratar',
+        type: 'counter',
+        goal: 2500,
+        unit: 'ml',
+        step: 250,
+        frequency: const ['seg', 'ter'],
+      ),
+    );
+
+    expect(store.habits, hasLength(1));
+    expect(store.habits.single.id, 'agua');
+    expect(store.habits.single.name, 'Hidratar');
+    expect(store.habitProgress[todayKey]?['agua'], 1500);
   });
 
   test('Habitex parses persisted theme mode', () {
@@ -91,12 +146,55 @@ void main() {
     expect(dailyHabitCompletionPercent(store, today), 100);
   });
 
-  testWidgets('Habitex renders the routine tab', (tester) async {
+  test('AuthService registers, logs out and logs in locally', () async {
     SharedPreferences.setMockInitialValues({});
+    final auth = AuthService();
 
-    await tester.pumpWidget(const HabitexApp());
-    await tester.pump();
-    await tester.pump();
+    final cadastro = await auth.cadastrar(
+      apelido: 'Jenny',
+      email: 'Jenny@Habitex.app',
+      senha: '123456',
+    );
+
+    expect(cadastro.sucesso, isTrue);
+    expect(await auth.isLogado(), isTrue);
+    expect((await auth.getUsuario())?.email, 'jenny@habitex.app');
+
+    await auth.logout();
+    expect(await auth.isLogado(), isFalse);
+
+    final login = await auth.login(email: 'jenny@habitex.app', senha: '123456');
+
+    expect(login.sucesso, isTrue);
+    expect(await auth.isLogado(), isTrue);
+  });
+
+  test('AuthService cadastro preenche perfil do HabitexStore', () async {
+    SharedPreferences.setMockInitialValues({});
+    final auth = AuthService();
+
+    final cadastro = await auth.cadastrar(
+      apelido: 'Jenny',
+      email: 'jenny@habitex.app',
+      senha: '123456',
+    );
+
+    final store = HabitexStore(onChanged: () {});
+    await store.load();
+    final usuario = await auth.getUsuario();
+    if (usuario != null) {
+      await store.applyAuthenticatedUser(usuario);
+    }
+
+    expect(cadastro.sucesso, isTrue);
+    expect(store.profile.nickname, 'Jenny');
+    expect(store.profile.email, 'jenny@habitex.app');
+  });
+
+  testWidgets('Habitex renders the routine tab', (tester) async {
+    SharedPreferences.setMockInitialValues(loggedInPrefs());
+
+    await pumpHabitexApp(tester);
 
     expect(find.text('Hoje'), findsOneWidget);
     expect(find.text('Rotina'), findsOneWidget);
@@ -107,13 +205,13 @@ void main() {
   testWidgets('Habitex opens general data drawer from routine avatar', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({
-      'habitex.profile': jsonEncode({'nickname': 'Jenny'}),
-    });
+    SharedPreferences.setMockInitialValues(
+      loggedInPrefs({
+        'habitex.profile': jsonEncode({'nickname': 'Jenny'}),
+      }),
+    );
 
-    await tester.pumpWidget(const HabitexApp());
-    await tester.pump();
-    await tester.pump();
+    await pumpHabitexApp(tester);
 
     await tester.tap(find.byType(ProfileAvatarButton));
     await tester.pumpAndSettle();
@@ -125,6 +223,7 @@ void main() {
     expect(find.text('Notificações'), findsOneWidget);
     expect(find.text('Exportar Dados'), findsOneWidget);
     expect(find.text('Assinatura Premium'), findsOneWidget);
+    expect(find.text('Sair'), findsOneWidget);
 
     await tester.tap(find.text('Perfil'));
     await tester.pumpAndSettle();
@@ -138,11 +237,9 @@ void main() {
   testWidgets('Habitex shows habit creation and weekly calendar', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues(loggedInPrefs());
 
-    await tester.pumpWidget(const HabitexApp());
-    await tester.pump();
-    await tester.pump();
+    await pumpHabitexApp(tester);
 
     await tester.tap(find.byIcon(CupertinoIcons.sparkles));
     await tester.pumpAndSettle();
@@ -155,9 +252,13 @@ void main() {
 
     expect(find.text('Novo hábito'), findsOneWidget);
     expect(find.text('Defina nome, ícone, frequência e meta.'), findsOneWidget);
-    expect(find.text('Todos'), findsOneWidget);
-    expect(find.text('Dias úteis'), findsOneWidget);
-    expect(find.text('Fim de semana'), findsOneWidget);
+    expect(find.text('Seg'), findsWidgets);
+    expect(find.text('Ter'), findsWidgets);
+    expect(find.text('Qua'), findsWidgets);
+    expect(find.text('Qui'), findsWidgets);
+    expect(find.text('Sex'), findsWidgets);
+    expect(find.text('Sáb'), findsWidgets);
+    expect(find.text('Dom'), findsWidgets);
     expect(find.text('páginas'), findsOneWidget);
     expect(find.text('ml'), findsOneWidget);
     expect(find.text('+500'), findsOneWidget);
@@ -165,26 +266,26 @@ void main() {
   });
 
   testWidgets('Habitex shows delete habit action after swipe', (tester) async {
-    SharedPreferences.setMockInitialValues({
-      'habitex.habitsSchemaVersion': habitsSchemaVersion,
-      'habitex.habits': jsonEncode([
-        {
-          'id': 'agua',
-          'icon': '💧',
-          'name': 'Água',
-          'type': 'counter',
-          'goal': 3000,
-          'unit': 'ml',
-          'practiceStep': 500,
-          'frequency': ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
-        },
-      ]),
-      'habitex.habitProgress': jsonEncode({}),
-    });
+    SharedPreferences.setMockInitialValues(
+      loggedInPrefs({
+        'habitex.habitsSchemaVersion': habitsSchemaVersion,
+        'habitex.habits': jsonEncode([
+          {
+            'id': 'agua',
+            'icon': '💧',
+            'name': 'Água',
+            'type': 'counter',
+            'goal': 3000,
+            'unit': 'ml',
+            'practiceStep': 500,
+            'frequency': ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
+          },
+        ]),
+        'habitex.habitProgress': jsonEncode({}),
+      }),
+    );
 
-    await tester.pumpWidget(const HabitexApp());
-    await tester.pump();
-    await tester.pump();
+    await pumpHabitexApp(tester);
 
     await tester.tap(find.byIcon(CupertinoIcons.sparkles));
     await tester.pumpAndSettle();

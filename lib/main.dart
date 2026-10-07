@@ -8,12 +8,16 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:habitex/pages/login_page.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:habitex/pages/splash_page.dart';
+import 'package:habitex/services/auth_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:uuid/uuid.dart';
 
 final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -65,6 +69,15 @@ class _HabitexAppState extends State<HabitexApp> {
     setState(() => loaded = true);
   }
 
+  Future<void> _syncAuthenticatedUser() async {
+    await store.load();
+    final usuario = await AuthService().getUsuario();
+    if (usuario != null) {
+      await store.applyAuthenticatedUser(usuario);
+    }
+    if (mounted) setState(() => loaded = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -109,7 +122,10 @@ class _HabitexAppState extends State<HabitexApp> {
           onSurfaceVariant: Color(0xFF8E8E93),
         ),
       ),
-      home: HabitexHome(store: store, loaded: loaded),
+      home: SplashPage(
+        app: HabitexHome(store: store, loaded: loaded),
+        onAuthenticated: _syncAuthenticatedUser,
+      ),
     );
   }
 }
@@ -205,6 +221,13 @@ class HabitexStore {
     onChanged();
   }
 
+  Future<void> _saveHabits() async {
+    await _save(
+      'habitex.habits',
+      habits.map((habit) => habit.toJson()).toList(),
+    );
+  }
+
   Future<void> addTask(String text, List<String> days) async {
     for (final day in days) {
       tasksByDay[day] = [
@@ -272,6 +295,13 @@ class HabitexStore {
       jsonEncode(nextProfile.toJson()),
     );
     onChanged();
+  }
+
+  Future<void> applyAuthenticatedUser(UsuarioLogado usuario) async {
+    _prefs ??= await SharedPreferences.getInstance();
+    await saveProfile(
+      profile.copyWith(nickname: usuario.apelido, email: usuario.email),
+    );
   }
 
   Future<void> setDarkMode(bool value) async {
@@ -348,10 +378,22 @@ class HabitexStore {
 
   Future<void> addHabit(Habit habit) async {
     habits = [...habits, habit];
-    await _save(
-      'habitex.habits',
-      habits.map((habit) => habit.toJson()).toList(),
-    );
+    await _saveHabits();
+  }
+
+  Future<void> saveHabit(Habit habit) async {
+    final exists = habits.any((item) => item.id == habit.id);
+    habits = exists
+        ? habits.map((item) => item.id == habit.id ? habit : item).toList()
+        : [...habits, habit];
+    await _saveHabits();
+  }
+
+  Future<void> editarHabito(Habit habitoAtualizado) async {
+    final index = habits.indexWhere((habit) => habit.id == habitoAtualizado.id);
+    if (index == -1) return;
+    habits[index] = habitoAtualizado;
+    await _saveHabits();
   }
 
   Future<void> deleteHabit(String id) async {
@@ -1006,6 +1048,28 @@ class DadosGeraisMenu extends StatelessWidget {
     Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => page));
   }
 
+  Future<void> syncAuthenticatedUser() async {
+    await store.load();
+    final usuario = await AuthService().getUsuario();
+    if (usuario != null) {
+      await store.applyAuthenticatedUser(usuario);
+    }
+  }
+
+  Future<void> logout(BuildContext context) async {
+    await AuthService().logout();
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      CupertinoPageRoute<void>(
+        builder: (_) => LoginPage(
+          nextPage: HabitexHome(store: store, loaded: true),
+          onAuthenticated: syncAuthenticatedUser,
+        ),
+      ),
+      (_) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
@@ -1073,6 +1137,14 @@ class DadosGeraisMenu extends StatelessWidget {
                   title: 'Assinatura Premium',
                   onTap: () => openPage(context, const AssinaturaPage()),
                 ),
+                DrawerDivider(),
+                DadosGeraisTile(
+                  icon: CupertinoIcons.square_arrow_left,
+                  title: 'Sair',
+                  color: iosRed,
+                  showChevron: false,
+                  onTap: () => logout(context),
+                ),
               ],
             ),
           ),
@@ -1088,11 +1160,15 @@ class DadosGeraisTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
+    this.color,
+    this.showChevron = true,
   });
 
   final IconData icon;
   final String title;
   final VoidCallback onTap;
+  final Color? color;
+  final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
@@ -1104,23 +1180,24 @@ class DadosGeraisTile extends StatelessWidget {
         child: Row(
           children: [
             const SizedBox(width: 16),
-            Icon(icon, color: iosBlue, size: 22),
+            Icon(icon, color: color ?? iosBlue, size: 22),
             const SizedBox(width: 14),
             Expanded(
               child: Text(
                 title,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
+                  color: color ?? Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-            Icon(
-              CupertinoIcons.chevron_right,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              size: 18,
-            ),
+            if (showChevron)
+              Icon(
+                CupertinoIcons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 18,
+              ),
             const SizedBox(width: 14),
           ],
         ),
@@ -3159,40 +3236,47 @@ class HabitosPage extends StatefulWidget {
 }
 
 class _HabitosPageState extends State<HabitosPage> {
-  void openHabitSheet() {
+  void _abrirModalHabito(BuildContext context, {Habit? habitoParaEditar}) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => HabitSheet(store: widget.store),
+      builder: (_) => HabitoFormModal(
+        store: widget.store,
+        habitoParaEditar: habitoParaEditar,
+      ),
     );
   }
 
-  Future<bool> confirmDeleteHabit(Habit habit) async {
-    final shouldDelete = await showCupertinoDialog<bool>(
+  Future<void> _confirmarExclusao(BuildContext context, Habit habit) async {
+    await showCupertinoDialog<void>(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
+      builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('Excluir hábito?'),
         content: Text(
-          'Isso remove "${habit.name}" do calendário e do check de hoje.',
+          'O hábito "${habit.name}" e todo o seu histórico serão '
+          'excluídos permanentemente. Esta ação não pode ser desfeita.',
         ),
         actions: [
           CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
+            isDestructiveAction: true,
+            onPressed: () async {
+              await widget.store.deleteHabit(habit.id);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('Excluir'),
           ),
           CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Excluir'),
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
           ),
         ],
       ),
     );
-    return shouldDelete == true;
   }
 
   @override
@@ -3208,7 +3292,7 @@ class _HabitosPageState extends State<HabitosPage> {
         CupertinoButton(
           color: iosBlue,
           borderRadius: BorderRadius.circular(12),
-          onPressed: openHabitSheet,
+          onPressed: () => _abrirModalHabito(context),
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -3230,20 +3314,33 @@ class _HabitosPageState extends State<HabitosPage> {
         for (final habit in widget.store.habits) ...[
           SwipeableHabitCard(
             key: ValueKey('habit-${habit.id}'),
-            onDelete: () async {
-              if (await confirmDeleteHabit(habit)) {
-                await widget.store.deleteHabit(habit.id);
-              }
-            },
-            child: HabitCard(
-              habit: habit,
-              value: todayProgress[habit.id] ?? 0,
-              onChange: (value) =>
-                  widget.store.updateHabitProgress(habit, value),
+            onDelete: () => _confirmarExclusao(context, habit),
+            child: GestureDetector(
+              onLongPress: () =>
+                  _abrirModalHabito(context, habitoParaEditar: habit),
+              child: HabitCard(
+                habit: habit,
+                value: todayProgress[habit.id] ?? 0,
+                onChange: (value) =>
+                    widget.store.updateHabitProgress(habit, value),
+              ),
             ),
           ),
           const SizedBox(height: 12),
         ],
+        if (widget.store.habits.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'Segure um hábito para editar',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
       ],
     );
   }
@@ -3721,26 +3818,48 @@ class HabitCard extends StatelessWidget {
   }
 }
 
-class HabitSheet extends StatefulWidget {
-  const HabitSheet({super.key, required this.store});
+class HabitoFormModal extends StatefulWidget {
+  const HabitoFormModal({
+    super.key,
+    required this.store,
+    this.habitoParaEditar,
+  });
 
   final HabitexStore store;
+  final Habit? habitoParaEditar;
 
   @override
-  State<HabitSheet> createState() => _HabitSheetState();
+  State<HabitoFormModal> createState() => _HabitoFormModalState();
 }
 
-class _HabitSheetState extends State<HabitSheet> {
-  final iconController = TextEditingController(text: '✨');
-  final nameController = TextEditingController();
-  final goalController = TextEditingController(text: '1');
-  final unitController = TextEditingController(text: 'vezes');
-  final stepController = TextEditingController(text: '1');
-  String type = 'counter';
-  List<String> frequency = weekDays.map((day) => day.id).toList();
+class _HabitoFormModalState extends State<HabitoFormModal> {
+  late final TextEditingController iconController;
+  late final TextEditingController nameController;
+  late final TextEditingController goalController;
+  late final TextEditingController unitController;
+  late final TextEditingController stepController;
+  late String type;
+  late List<String> frequency;
+
+  bool get _isEdicao => widget.habitoParaEditar != null;
+  String get _titulo => _isEdicao ? 'Editar hábito' : 'Novo hábito';
+  String get _labelBotao => _isEdicao ? 'Salvar alterações' : 'Criar hábito';
 
   void setFrequency(List<String> days) {
     setState(() => frequency = days);
+  }
+
+  void toggleFrequencyDay(String dayId) {
+    setState(() {
+      final selected = frequency.contains(dayId);
+      if (selected) {
+        if (frequency.length > 1) {
+          frequency = frequency.where((id) => id != dayId).toList();
+        }
+      } else {
+        frequency = [...frequency, dayId];
+      }
+    });
   }
 
   void setUnit(String unit) {
@@ -3754,6 +3873,19 @@ class _HabitSheetState extends State<HabitSheet> {
   @override
   void initState() {
     super.initState();
+    final habit = widget.habitoParaEditar;
+    iconController = TextEditingController(text: habit?.icon ?? '✨');
+    nameController = TextEditingController(text: habit?.name ?? '');
+    goalController = TextEditingController(text: (habit?.goal ?? 1).toString());
+    unitController = TextEditingController(
+      text: habit?.unit.isNotEmpty == true ? habit!.unit : 'vezes',
+    );
+    stepController = TextEditingController(text: (habit?.step ?? 1).toString());
+    type = habit?.type ?? 'counter';
+    final savedFrequency = habit?.frequency.toList();
+    frequency = savedFrequency == null || savedFrequency.isEmpty
+        ? weekDays.map((day) => day.id).toList()
+        : savedFrequency;
     stepController.addListener(refreshPreview);
     unitController.addListener(refreshPreview);
   }
@@ -3774,299 +3906,312 @@ class _HabitSheetState extends State<HabitSheet> {
     super.dispose();
   }
 
-  Future<void> save() async {
+  Future<void> _salvar() async {
     final name = nameController.text.trim();
     if (name.isEmpty) return;
-    await widget.store.addHabit(
-      Habit(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        icon: iconController.text.trim().isEmpty
-            ? '✨'
-            : iconController.text.trim(),
-        name: name,
-        type: type,
-        goal: int.tryParse(goalController.text) ?? 1,
-        unit: type == 'binary'
-            ? ''
-            : unitController.text.trim().isEmpty
-            ? 'vezes'
-            : normalizeHabitUnit(unitController.text.trim()),
-        step: type == 'binary' ? 1 : parsePositiveInt(stepController.text),
-        frequency: frequency.isEmpty
-            ? weekDays.map((day) => day.id).toList()
-            : frequency,
-      ),
+    final habit = Habit(
+      id: widget.habitoParaEditar?.id ?? const Uuid().v4(),
+      icon: iconController.text.trim().isEmpty
+          ? '✨'
+          : iconController.text.trim(),
+      name: name,
+      type: type,
+      goal: int.tryParse(goalController.text) ?? 1,
+      unit: type == 'binary'
+          ? ''
+          : unitController.text.trim().isEmpty
+          ? 'vezes'
+          : normalizeHabitUnit(unitController.text.trim()),
+      step: type == 'binary' ? 1 : parsePositiveInt(stepController.text),
+      frequency: frequency,
     );
+    if (_isEdicao) {
+      await widget.store.editarHabito(habit);
+    } else {
+      await widget.store.addHabit(habit);
+    }
     if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        10,
-        20,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            10,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    'Cancelar',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
+                Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: save,
-                  child: const Text(
-                    'Salvar',
-                    style: TextStyle(
-                      color: iosBlue,
-                      fontWeight: FontWeight.w800,
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Cancelar',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _salvar,
+                      child: Text(
+                        _labelBotao,
+                        style: const TextStyle(
+                          color: iosBlue,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  _titulo,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-              ],
-            ),
-            Text(
-              'Novo hábito',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Defina nome, ícone, frequência e meta.',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                SizedBox(
-                  width: 72,
-                  child: FieldBox(
-                    label: 'Ícone',
-                    controller: iconController,
-                    textAlign: TextAlign.center,
-                    fontSize: 28,
+                const SizedBox(height: 4),
+                Text(
+                  _isEdicao
+                      ? 'Atualize nome, ícone, frequência e meta.'
+                      : 'Defina nome, ícone, frequência e meta.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FieldBox(
-                    label: 'Nome',
-                    controller: nameController,
-                    hint: 'Ex: Meditar',
-                    fontSize: 18,
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      child: FieldBox(
+                        label: 'Ícone',
+                        controller: iconController,
+                        textAlign: TextAlign.center,
+                        fontSize: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FieldBox(
+                        label: 'Nome',
+                        controller: nameController,
+                        hint: 'Ex: Meditar',
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SheetSegment(
+                          label: 'Contador',
+                          selected: type == 'counter',
+                          onTap: () => setState(() => type = 'counter'),
+                        ),
+                      ),
+                      Expanded(
+                        child: SheetSegment(
+                          label: 'Binário',
+                          selected: type == 'binary',
+                          onTap: () => setState(() => type = 'binary'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SheetSegment(
-                      label: 'Quantidade',
-                      selected: type == 'counter',
-                      onTap: () => setState(() => type = 'counter'),
-                    ),
-                  ),
-                  Expanded(
-                    child: SheetSegment(
-                      label: 'Sim/Não',
-                      selected: type == 'binary',
-                      onTap: () => setState(() => type = 'binary'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (type == 'counter') ...[
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: FieldBox(
-                      label: 'Meta',
-                      controller: goalController,
-                      keyboardType: TextInputType.number,
-                      fontSize: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FieldBox(
-                      label: 'Unidade',
-                      controller: unitController,
-                      fontSize: 20,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              FieldBox(
-                label: 'Registro por toque',
-                controller: stepController,
-                keyboardType: TextInputType.number,
-                fontSize: 20,
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: iosBlue.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Cada toque no + registra ${parsePositiveInt(stepController.text)} ${unitController.text.trim().isEmpty ? 'vezes' : normalizeHabitUnit(unitController.text.trim())}.',
-                  style: const TextStyle(
-                    color: iosBlue,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  UnitQuickButton(
-                    label: 'vezes',
-                    onPressed: () => setUnit('vezes'),
-                  ),
-                  UnitQuickButton(
-                    label: 'min',
-                    onPressed: () => setUnit('min'),
-                  ),
-                  UnitQuickButton(label: 'ml', onPressed: () => setUnit('ml')),
-                  UnitQuickButton(
-                    label: 'copos',
-                    onPressed: () => setUnit('copos'),
-                  ),
-                  UnitQuickButton(
-                    label: 'páginas',
-                    onPressed: () => setUnit('páginas'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  UnitQuickButton(label: '+1', onPressed: () => setStep(1)),
-                  UnitQuickButton(label: '+5', onPressed: () => setStep(5)),
-                  UnitQuickButton(label: '+10', onPressed: () => setStep(10)),
-                  UnitQuickButton(label: '+100', onPressed: () => setStep(100)),
-                  UnitQuickButton(label: '+500', onPressed: () => setStep(500)),
-                ],
-              ),
-            ],
-            const SizedBox(height: 14),
-            IosCard(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Frequência',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
+                if (type == 'counter') ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FieldBox(
+                          label: 'Meta',
+                          controller: goalController,
+                          keyboardType: TextInputType.number,
+                          fontSize: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FieldBox(
+                          label: 'Unidade',
+                          controller: unitController,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
+                  FieldBox(
+                    label: 'Registro por toque',
+                    controller: stepController,
+                    keyboardType: TextInputType.number,
+                    fontSize: 20,
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: iosBlue.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Cada toque no + registra ${parsePositiveInt(stepController.text)} ${unitController.text.trim().isEmpty ? 'vezes' : normalizeHabitUnit(unitController.text.trim())}.',
+                      style: const TextStyle(
+                        color: iosBlue,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      FrequencyQuickButton(
-                        label: 'Todos',
-                        onPressed: () => setFrequency(
-                          weekDays.map((day) => day.id).toList(),
-                        ),
+                      UnitQuickButton(
+                        label: 'vezes',
+                        onPressed: () => setUnit('vezes'),
                       ),
-                      FrequencyQuickButton(
-                        label: 'Dias úteis',
-                        onPressed: () =>
-                            setFrequency(['seg', 'ter', 'qua', 'qui', 'sex']),
+                      UnitQuickButton(
+                        label: 'min',
+                        onPressed: () => setUnit('min'),
                       ),
-                      FrequencyQuickButton(
-                        label: 'Fim de semana',
-                        onPressed: () => setFrequency(['sab', 'dom']),
+                      UnitQuickButton(
+                        label: 'ml',
+                        onPressed: () => setUnit('ml'),
+                      ),
+                      UnitQuickButton(
+                        label: 'copos',
+                        onPressed: () => setUnit('copos'),
+                      ),
+                      UnitQuickButton(
+                        label: 'páginas',
+                        onPressed: () => setUnit('páginas'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Row(
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      for (final day in weekDays)
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 3),
-                            child: DayChip(
-                              label: day.short.substring(0, 1),
-                              selected: frequency.contains(day.id),
-                              compact: true,
-                              onTap: () {
-                                setState(() {
-                                  frequency = frequency.contains(day.id)
-                                      ? frequency
-                                            .where((id) => id != day.id)
-                                            .toList()
-                                      : [...frequency, day.id];
-                                });
-                              },
-                            ),
-                          ),
-                        ),
+                      UnitQuickButton(label: '+1', onPressed: () => setStep(1)),
+                      UnitQuickButton(label: '+5', onPressed: () => setStep(5)),
+                      UnitQuickButton(
+                        label: '+10',
+                        onPressed: () => setStep(10),
+                      ),
+                      UnitQuickButton(
+                        label: '+100',
+                        onPressed: () => setStep(100),
+                      ),
+                      UnitQuickButton(
+                        label: '+500',
+                        onPressed: () => setStep(500),
+                      ),
                     ],
                   ),
                 ],
-              ),
+                const SizedBox(height: 14),
+                IosCard(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Frequência',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final day in weekDays)
+                            GestureDetector(
+                              onTap: () => toggleFrequencyDay(day.id),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: frequency.contains(day.id)
+                                      ? iosBlue
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  day.short,
+                                  style: TextStyle(
+                                    color: frequency.contains(day.id)
+                                        ? Colors.white
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onSurface,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
