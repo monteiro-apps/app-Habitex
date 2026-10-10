@@ -83,10 +83,39 @@ void main() {
     expect(store.habitProgress[todayKey]?['agua'], 1500);
   });
 
+  test('Habitex notifies immediately when habit progress changes', () {
+    var notified = false;
+    var routeNotified = false;
+    final store = HabitexStore(onChanged: () => notified = true);
+    store.addListener(() => routeNotified = true);
+    final habit = Habit(
+      id: 'agua',
+      icon: '💧',
+      name: 'Água',
+      type: 'counter',
+      goal: 3000,
+      unit: 'ml',
+      step: 500,
+      frequency: const ['seg'],
+    );
+
+    store.updateHabitProgress(habit, 500);
+
+    expect(notified, isTrue);
+    expect(routeNotified, isTrue);
+    expect(store.habitProgress[dateKey(DateTime.now())]?['agua'], 500);
+  });
+
   test('Habitex parses persisted theme mode', () {
     expect(themeModeFromString('light'), ThemeMode.light);
     expect(themeModeFromString('dark'), ThemeMode.dark);
     expect(themeModeFromString('system'), ThemeMode.system);
+  });
+
+  test('Habitex schedules notifications in Sao Paulo local time', () {
+    initializeHabitexTimeZone();
+
+    expect(habitexTimeZoneName, 'America/Sao_Paulo');
   });
 
   test('Habitex maps completion percentage colors', () {
@@ -144,6 +173,167 @@ void main() {
       closeTo(1 / 7, 0.001),
     );
     expect(dailyHabitCompletionPercent(store, today), 100);
+  });
+
+  test('Habitex keeps weekly highlight and ranking in sync', () {
+    final store = HabitexStore(onChanged: () {});
+    final today = DateTime.now();
+    final yesterday = today.subtract(const Duration(days: 1));
+    final scheduledDays = [dayId(today), dayId(yesterday)];
+    final habit = Habit(
+      id: 'academia',
+      icon: '🏋️',
+      name: 'Academia',
+      type: 'binary',
+      goal: 1,
+      unit: 'vez',
+      step: 1,
+      frequency: scheduledDays,
+    );
+
+    store.habits = [habit];
+    store.habitProgress = {
+      dateKey(yesterday): {'academia': 1},
+    };
+
+    expect(habitStreaks(store).single.days, 0);
+    expect(mostConsistentHabit(store)?.completedDays, 0);
+
+    store.habitProgress[dateKey(today)] = {'academia': 1};
+
+    expect(habitStreaks(store).single.days, 2);
+    expect(mostConsistentHabit(store)?.completedDays, 2);
+  });
+
+  test('Habitex calculates one completed day out of four as 25 percent', () {
+    final store = HabitexStore(onChanged: () {});
+    final dates = last7Dates();
+    final habit = Habit(
+      id: 'academia',
+      icon: '🏋️',
+      name: 'Academia',
+      type: 'binary',
+      goal: 1,
+      unit: 'vez',
+      step: 1,
+      frequency: dates.take(4).map(dayId).toList(),
+    );
+    store.habits = [habit];
+    store.habitProgress = {
+      dateKey(dates.first): {'academia': 1},
+    };
+
+    final rate = habitCompletionRates(store).single;
+
+    expect(rate.completedDays, 1);
+    expect(rate.scheduledDays, 4);
+    expect(rate.percent, 0.25);
+    expect(calcPercentualHabito(habit, store.habitProgress), 0.25);
+  });
+
+  test('Habitex counts extra-day completions against the weekly goal', () {
+    final store = HabitexStore(onChanged: () {});
+    final dates = last7Dates();
+    final scheduled = dates.take(3).toList();
+    final extraDays = dates.skip(3).take(2).toList();
+    final habit = Habit(
+      id: 'academia',
+      icon: '💪',
+      name: 'Academia',
+      type: 'binary',
+      goal: 1,
+      unit: 'vez',
+      step: 1,
+      frequency: scheduled.map(dayId).toList(),
+    );
+    store.habits = [habit];
+    store.habitProgress = {
+      for (final date in extraDays) dateKey(date): {'academia': 1},
+    };
+
+    final rate = habitCompletionRates(store).single;
+
+    expect(rate.completedDays, 2);
+    expect(rate.scheduledDays, 3);
+    expect(rate.percent, closeTo(2 / 3, 0.001));
+  });
+
+  test('Habitex exports current month and complete history separately', () {
+    final today = DateTime(2026, 10, 10);
+    final startedAt = today.subtract(const Duration(days: 40));
+
+    final month = exportDatesForPeriod('mes', startedAt: startedAt, now: today);
+    final all = exportDatesForPeriod('tudo', startedAt: startedAt, now: today);
+
+    expect(month, hasLength(10));
+    expect(month.first, DateTime(2026, 10, 1));
+    expect(month.last, today);
+    expect(all, hasLength(41));
+    expect(all.first, DateTime(2026, 8, 31));
+    expect(all.last, today);
+  });
+
+  test('Habitex exports history since the user started without progress', () {
+    final dates = exportDatesForPeriod(
+      'tudo',
+      startedAt: DateTime(2026, 10, 5),
+      now: DateTime(2026, 10, 10),
+    );
+
+    expect(dates, hasLength(6));
+    expect(dates.first, DateTime(2026, 10, 5));
+    expect(dates.last, DateTime(2026, 10, 10));
+  });
+
+  test(
+    'Habitex recovers September history after startedAt migration',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'habitex.habitsSchemaVersion': habitsSchemaVersion,
+        'habitex.habits': jsonEncode([]),
+        'habitex.habitProgress': jsonEncode({
+          '2026-09-12': {'academia': 1},
+        }),
+        'habitex.startedAt': '2026-10-01T00:00:00.000',
+        'habitex.startedAtVersion': 1,
+      });
+      final store = HabitexStore(onChanged: () {});
+
+      await store.load();
+
+      expect(store.startedAt, DateTime(2026, 9, 12));
+    },
+  );
+
+  test('Habitex preserves legacy 30-day export history on migration', () async {
+    final today = DateTime.now();
+    SharedPreferences.setMockInitialValues({
+      'habitex.habitsSchemaVersion': habitsSchemaVersion,
+      'habitex.habits': jsonEncode([
+        {
+          'id': 'academia',
+          'icon': '💪',
+          'name': 'Academia',
+          'type': 'binary',
+          'goal': 1,
+          'unit': '',
+          'practiceStep': 1,
+          'frequency': ['seg', 'qua', 'sex'],
+        },
+      ]),
+      'habitex.habitProgress': jsonEncode({}),
+      'habitex.startedAt': dateKey(DateTime(today.year, today.month)),
+    });
+    final store = HabitexStore(onChanged: () {});
+    final expected = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(const Duration(days: 29));
+
+    await store.load();
+
+    expect(store.startedAt, expected);
   });
 
   test('AuthService registers, logs out and logs in locally', () async {
@@ -232,6 +422,17 @@ void main() {
     expect(find.text('E-MAIL'), findsOneWidget);
     expect(find.text('SENHA'), findsOneWidget);
     expect(find.byIcon(CupertinoIcons.camera_fill), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('full-page-Perfil'))).width,
+      tester.view.physicalSize.width / tester.view.devicePixelRatio,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('full-page-Perfil')),
+        matching: find.byType(SafeArea),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Habitex shows habit creation and weekly calendar', (
@@ -263,6 +464,19 @@ void main() {
     expect(find.text('ml'), findsOneWidget);
     expect(find.text('+500'), findsOneWidget);
     expect(find.text('Registro por toque'), findsOneWidget);
+    expect(find.text('Todos os dias'), findsOneWidget);
+    expect(find.text('Dias úteis'), findsOneWidget);
+    expect(find.text('Fim de semana'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Fim de semana'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fim de semana'));
+    await tester.pump();
+
+    final preset = tester.widget<FrequencyPresetButton>(
+      find.widgetWithText(FrequencyPresetButton, 'Fim de semana'),
+    );
+    expect(preset.selected, isTrue);
   });
 
   testWidgets('Habitex shows delete habit action after swipe', (tester) async {

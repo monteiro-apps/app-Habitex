@@ -23,7 +23,7 @@ final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  tzdata.initializeTimeZones();
+  initializeHabitexTimeZone();
   await flutterLocalNotificationsPlugin.initialize(
     const InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -32,6 +32,13 @@ Future<void> main() async {
   );
   runApp(const HabitexApp());
 }
+
+void initializeHabitexTimeZone() {
+  tzdata.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('America/Sao_Paulo'));
+}
+
+String get habitexTimeZoneName => tz.local.name;
 
 const iosBg = Color(0xFFF2F2F7);
 const iosCard = Color(0xFFFFFFFF);
@@ -66,6 +73,7 @@ class _HabitexAppState extends State<HabitexApp> {
 
   Future<void> _load() async {
     await store.load();
+    await reagendarNotificacoesSalvas(store);
     setState(() => loaded = true);
   }
 
@@ -75,6 +83,7 @@ class _HabitexAppState extends State<HabitexApp> {
     if (usuario != null) {
       await store.applyAuthenticatedUser(usuario);
     }
+    await reagendarNotificacoesSalvas(store);
     if (mounted) setState(() => loaded = true);
   }
 
@@ -144,6 +153,31 @@ class _HabitexHomeState extends State<HabitexHome> {
   AppTab currentTab = AppTab.rotina;
 
   @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_refreshFromStore);
+  }
+
+  @override
+  void didUpdateWidget(covariant HabitexHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store != widget.store) {
+      oldWidget.store.removeListener(_refreshFromStore);
+      widget.store.addListener(_refreshFromStore);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_refreshFromStore);
+    super.dispose();
+  }
+
+  void _refreshFromStore() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     final store = widget.store;
     final page = switch (currentTab) {
@@ -172,17 +206,30 @@ class HabitexStore {
   HabitexStore({required this.onChanged});
 
   final VoidCallback onChanged;
+  final Set<VoidCallback> _listeners = {};
   SharedPreferences? _prefs;
   Map<String, List<RoutineTask>> tasksByDay = {};
   List<QuickNote> notes = [];
   List<Habit> habits = defaultHabits();
   Map<String, Map<String, int>> habitProgress = {};
+  DateTime startedAt = DateTime.now();
   UserProfile profile = const UserProfile();
   ThemeMode themeMode = ThemeMode.light;
   bool notifRotina = false;
   String notifRotinaHora = '08:00';
   Map<String, bool> notifHabitos = {};
   Map<String, List<String>> notifHabitoHoras = {};
+
+  void addListener(VoidCallback listener) => _listeners.add(listener);
+
+  void removeListener(VoidCallback listener) => _listeners.remove(listener);
+
+  void _notifyChanged() {
+    onChanged();
+    for (final listener in List<VoidCallback>.of(_listeners)) {
+      listener();
+    }
+  }
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -200,6 +247,7 @@ class HabitexStore {
       await _prefs?.setString('habitex.habits', jsonEncode([]));
       await _prefs?.setString('habitex.habitProgress', jsonEncode({}));
       await _prefs?.setInt('habitex.habitsSchemaVersion', habitsSchemaVersion);
+      await _loadStartedAt();
       return;
     }
     habits = _decodeHabits(_prefs?.getString('habitex.habits'));
@@ -214,11 +262,56 @@ class HabitexStore {
           _prefs?.getString('habitex.notifHabitoHoras_${habit.id}'),
         ),
     };
+    await _loadStartedAt();
+  }
+
+  Future<void> _loadStartedAt() async {
+    final saved = DateTime.tryParse(
+      _prefs?.getString('habitex.startedAt') ?? '',
+    );
+    final migrationVersion = _prefs?.getInt('habitex.startedAtVersion') ?? 0;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final hasExistingData =
+        habits.isNotEmpty ||
+        notes.isNotEmpty ||
+        habitProgress.isNotEmpty ||
+        tasksByDay.values.any((tasks) => tasks.isNotEmpty);
+    startedAt = saved != null
+        ? DateTime(saved.year, saved.month, saved.day)
+        : hasExistingData
+        ? DateTime(today.year, today.month)
+        : today;
+
+    // Legacy exports covered at least 30 days before startedAt was persisted.
+    if (migrationVersion < 1 && hasExistingData) {
+      final legacyStart = today.subtract(const Duration(days: 29));
+      if (legacyStart.isBefore(startedAt)) startedAt = legacyStart;
+    }
+
+    // Reconcile migrated values with older data that may still be stored.
+    for (final key in habitProgress.keys) {
+      final savedDate = DateTime.tryParse(key);
+      if (savedDate != null && savedDate.isBefore(startedAt)) {
+        startedAt = DateTime(savedDate.year, savedDate.month, savedDate.day);
+      }
+    }
+    for (final note in notes) {
+      if (note.updatedAt.isBefore(startedAt)) {
+        startedAt = DateTime(
+          note.updatedAt.year,
+          note.updatedAt.month,
+          note.updatedAt.day,
+        );
+      }
+    }
+
+    await _prefs?.setString('habitex.startedAt', startedAt.toIso8601String());
+    await _prefs?.setInt('habitex.startedAtVersion', 1);
   }
 
   Future<void> _save(String key, Object value) async {
     await _prefs?.setString(key, jsonEncode(value));
-    onChanged();
   }
 
   Future<void> _saveHabits() async {
@@ -238,6 +331,7 @@ class HabitexStore {
         ),
       ];
     }
+    _notifyChanged();
     await _save(
       'habitex.tasksByDay',
       tasksByDay.map(
@@ -251,6 +345,7 @@ class HabitexStore {
     tasksByDay[day] = (tasksByDay[day] ?? [])
         .map((task) => task.id == id ? task.copyWith(done: !task.done) : task)
         .toList();
+    _notifyChanged();
     await _save(
       'habitex.tasksByDay',
       tasksByDay.map(
@@ -264,6 +359,7 @@ class HabitexStore {
     tasksByDay[day] = (tasksByDay[day] ?? [])
         .where((task) => task.id != id)
         .toList();
+    _notifyChanged();
     await _save(
       'habitex.tasksByDay',
       tasksByDay.map(
@@ -278,11 +374,13 @@ class HabitexStore {
     notes = exists
         ? notes.map((item) => item.id == note.id ? note : item).toList()
         : [note, ...notes];
+    _notifyChanged();
     await _save('habitex.notes', notes.map((note) => note.toJson()).toList());
   }
 
   Future<void> saveProfile(UserProfile nextProfile) async {
     profile = nextProfile;
+    _notifyChanged();
     await _prefs?.setString('habitex.apelido', nextProfile.nickname);
     await _prefs?.setString('habitex.email', nextProfile.email);
     if (nextProfile.photoPath == null || nextProfile.photoPath!.isEmpty) {
@@ -294,7 +392,6 @@ class HabitexStore {
       'habitex.profile',
       jsonEncode(nextProfile.toJson()),
     );
-    onChanged();
   }
 
   Future<void> applyAuthenticatedUser(UsuarioLogado usuario) async {
@@ -310,20 +407,20 @@ class HabitexStore {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     themeMode = mode;
+    _notifyChanged();
     await _prefs?.setString('habitex.themeMode', themeModeToString(themeMode));
-    onChanged();
   }
 
   Future<void> setRoutineNotification(bool enabled) async {
     notifRotina = enabled;
+    _notifyChanged();
     await _prefs?.setBool('habitex.notifRotina', enabled);
-    onChanged();
   }
 
   Future<void> setRoutineNotificationTime(String time) async {
     notifRotinaHora = time;
+    _notifyChanged();
     await _prefs?.setString('habitex.notifRotinaHora', time);
-    onChanged();
   }
 
   Future<void> saveNotifRotina({
@@ -332,15 +429,15 @@ class HabitexStore {
   }) async {
     notifRotina = ativo;
     notifRotinaHora = hora;
+    _notifyChanged();
     await _prefs?.setBool('habitex.notifRotina', ativo);
     await _prefs?.setString('habitex.notifRotinaHora', hora);
-    onChanged();
   }
 
   Future<void> setHabitNotification(String habitId, bool enabled) async {
     notifHabitos = {...notifHabitos, habitId: enabled};
+    _notifyChanged();
     await _prefs?.setBool('habitex.notifHabito_$habitId', enabled);
-    onChanged();
   }
 
   Future<void> saveNotifHabito({
@@ -348,8 +445,8 @@ class HabitexStore {
     required bool ativo,
   }) async {
     notifHabitos = {...notifHabitos, habitoId: ativo};
+    _notifyChanged();
     await _prefs?.setBool('habitex.notifHabito_$habitoId', ativo);
-    onChanged();
   }
 
   Future<void> setHabitNotificationHours(
@@ -357,11 +454,11 @@ class HabitexStore {
     List<String> hours,
   ) async {
     notifHabitoHoras = {...notifHabitoHoras, habitId: hours};
+    _notifyChanged();
     await _prefs?.setString(
       'habitex.notifHabitoHoras_$habitId',
       jsonEncode(hours),
     );
-    onChanged();
   }
 
   Future<void> saveNotifHabitoHoras({
@@ -369,15 +466,16 @@ class HabitexStore {
     required List<String> horas,
   }) async {
     notifHabitoHoras = {...notifHabitoHoras, habitoId: horas};
+    _notifyChanged();
     await _prefs?.setString(
       'habitex.notifHabitoHoras_$habitoId',
       jsonEncode(horas),
     );
-    onChanged();
   }
 
   Future<void> addHabit(Habit habit) async {
     habits = [...habits, habit];
+    _notifyChanged();
     await _saveHabits();
   }
 
@@ -386,6 +484,7 @@ class HabitexStore {
     habits = exists
         ? habits.map((item) => item.id == habit.id ? habit : item).toList()
         : [...habits, habit];
+    _notifyChanged();
     await _saveHabits();
   }
 
@@ -393,6 +492,7 @@ class HabitexStore {
     final index = habits.indexWhere((habit) => habit.id == habitoAtualizado.id);
     if (index == -1) return;
     habits[index] = habitoAtualizado;
+    _notifyChanged();
     await _saveHabits();
   }
 
@@ -402,18 +502,19 @@ class HabitexStore {
       final nextProgress = Map<String, int>.from(progress)..remove(id);
       return MapEntry(date, nextProgress);
     });
+    _notifyChanged();
     await _prefs?.setString(
       'habitex.habits',
       jsonEncode(habits.map((habit) => habit.toJson()).toList()),
     );
     await _prefs?.setString('habitex.habitProgress', jsonEncode(habitProgress));
-    onChanged();
   }
 
   Future<void> updateHabitProgress(Habit habit, int value) async {
     final key = dateKey(DateTime.now());
     habitProgress[key] = {...habitProgress[key] ?? {}, habit.id: value};
-    await _save('habitex.habitProgress', habitProgress);
+    _notifyChanged();
+    _prefs?.setString('habitex.habitProgress', jsonEncode(habitProgress));
   }
 }
 
@@ -878,84 +979,97 @@ class _NotasPageState extends State<NotasPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
+    return Stack(
       children: [
-        HabitexHeader(
-          title: 'Notas',
-          subtitle: '${widget.store.notes.length} anotações rápidas',
-        ),
-        const SizedBox(height: 18),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          children: [
-            for (final note in widget.store.notes)
-              GestureDetector(
-                onTap: () => openNote(note),
-                child: IosCard(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        note.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
+        Positioned.fill(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
+            children: [
+              HabitexHeader(
+                title: 'Notas',
+                subtitle: '${widget.store.notes.length} anotações rápidas',
+              ),
+              const SizedBox(height: 18),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                children: [
+                  for (final note in widget.store.notes)
+                    GestureDetector(
+                      onTap: () => openNote(note),
+                      child: IosCard(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              note.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              formatShortDate(note.updatedAt),
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Flexible(
+                              fit: FlexFit.loose,
+                              child: Text(
+                                note.body.isEmpty ? 'Nota vazia' : note.body,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface,
+                                  fontSize: 13,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        formatShortDate(note.updatedAt),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Flexible(
-                        fit: FlexFit.loose,
-                        child: Text(
-                          note.body.isEmpty ? 'Nota vazia' : note.body,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 13,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                ],
+              ),
+              if (widget.store.notes.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 40),
+                  child: Text(
+                    'Toque no lápis para criar sua primeira nota.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
-          ],
-        ),
-        if (widget.store.notes.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 40),
-            child: Text(
-              'Toque no lápis para criar sua primeira nota.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+            ],
           ),
-        const SizedBox(height: 80),
-        Align(
-          alignment: Alignment.centerRight,
+        ),
+        Positioned(
+          right: 20,
+          bottom: 20,
           child: CupertinoButton(
+            key: const ValueKey('new-note-button'),
             color: iosBlue,
             borderRadius: BorderRadius.circular(28),
             padding: const EdgeInsets.all(16),
@@ -1029,11 +1143,7 @@ class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
       child: Drawer(
         width: MediaQuery.of(context).size.width * 0.85,
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        child: Navigator(
-          onGenerateRoute: (_) => CupertinoPageRoute<void>(
-            builder: (_) => DadosGeraisMenu(store: widget.store),
-          ),
-        ),
+        child: DadosGeraisMenu(store: widget.store),
       ),
     );
   }
@@ -1045,7 +1155,9 @@ class DadosGeraisMenu extends StatelessWidget {
   final HabitexStore store;
 
   void openPage(BuildContext context, Widget page) {
-    Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => page));
+    final navigator = Navigator.of(context, rootNavigator: true);
+    Scaffold.of(context).closeEndDrawer();
+    navigator.push(CupertinoPageRoute<void>(builder: (_) => page));
   }
 
   Future<void> syncAuthenticatedUser() async {
@@ -1464,43 +1576,48 @@ class DrawerSubPageScaffold extends StatelessWidget {
     final gap = w * 0.020;
 
     return Scaffold(
+      key: ValueKey('full-page-$title'),
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: ListView(
-        padding: EdgeInsets.fromLTRB(
-          paddingH,
-          paddingTop,
-          paddingH,
-          paddingBottom,
-        ),
-        children: [
-          Row(
-            children: [
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () => Navigator.pop(context),
-                child: Icon(
-                  CupertinoIcons.chevron_left,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  size: w * 0.061,
-                ),
-              ),
-              SizedBox(width: gap),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: w * 0.055,
-                    fontWeight: FontWeight.w900,
+      body: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(
+            paddingH,
+            paddingTop,
+            paddingH,
+            paddingBottom,
+          ),
+          children: [
+            Row(
+              children: [
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.pop(context),
+                  child: Icon(
+                    CupertinoIcons.chevron_left,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: w * 0.061,
                   ),
                 ),
-              ),
-              ?trailing,
-            ],
-          ),
-          SizedBox(height: w * 0.050),
-          ...children,
-        ],
+                SizedBox(width: gap),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: w * 0.055,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                ?trailing,
+              ],
+            ),
+            SizedBox(height: w * 0.050),
+            ...children,
+          ],
+        ),
       ),
     );
   }
@@ -2834,6 +2951,29 @@ Future<void> reagendarNotifsHabito(Habit habit, List<String> hours) async {
   }
 }
 
+Future<void> reagendarNotificacoesSalvas(HabitexStore store) async {
+  try {
+    if (store.notifRotina) {
+      final tasks = store.tasksByDay[dayId(DateTime.now())] ?? [];
+      final pendingTasks = tasks.where((task) => !task.done).length;
+      await agendarNotifRotina(
+        timeOfDayFromString(store.notifRotinaHora),
+        pendingTasks,
+      );
+    }
+
+    for (final habit in store.habits) {
+      if (!(store.notifHabitos[habit.id] ?? false)) continue;
+      await reagendarNotifsHabito(
+        habit,
+        store.notifHabitoHoras[habit.id] ?? const [],
+      );
+    }
+  } catch (_) {
+    // Notification scheduling must never prevent the app from opening.
+  }
+}
+
 class ExportarPage extends StatefulWidget {
   const ExportarPage({super.key, required this.store});
 
@@ -2844,6 +2984,7 @@ class ExportarPage extends StatefulWidget {
 }
 
 class _ExportarPageState extends State<ExportarPage> {
+  final GlobalKey _exportButtonKey = GlobalKey();
   String _periodoSelecionado = 'semana';
   bool _carregando = false;
 
@@ -2863,41 +3004,18 @@ class _ExportarPageState extends State<ExportarPage> {
   String _labelPeriodo() {
     return switch (_periodoSelecionado) {
       'semana' => 'Últimos 7 dias',
-      'mes' => 'Últimos 30 dias',
+      'mes' => 'Mês atual',
       'tudo' => 'Todo o histórico',
       _ => '',
     };
   }
 
   List<DateTime> _datasParaPeriodo(String periodo) {
-    final today = DateTime.now();
-    final dates = <DateTime>[];
-
-    switch (periodo) {
-      case 'semana':
-        for (var index = 6; index >= 0; index--) {
-          dates.add(today.subtract(Duration(days: index)));
-        }
-      case 'mes':
-        for (var index = 29; index >= 0; index--) {
-          dates.add(today.subtract(Duration(days: index)));
-        }
-      case 'tudo':
-        final keys = store.habitProgress.keys.toList()..sort();
-        for (final key in keys) {
-          final parts = key.split('-');
-          if (parts.length != 3) continue;
-          dates.add(
-            DateTime(
-              int.parse(parts[0]),
-              int.parse(parts[1]),
-              int.parse(parts[2]),
-            ),
-          );
-        }
-    }
-
-    return dates;
+    return exportDatesForPeriod(
+      periodo,
+      startedAt: store.startedAt,
+      now: DateTime.now(),
+    );
   }
 
   int _contarRegistros() {
@@ -2954,10 +3072,20 @@ class _ExportarPageState extends State<ExportarPage> {
           '${directory.path}/habitex_${_periodoSelecionado}_${_dateKey(DateTime.now())}.csv';
       final file = File(path);
       await file.writeAsString(csv, encoding: utf8);
+      if (!mounted) return;
+      final buttonBox = _exportButtonKey.currentContext?.findRenderObject();
+      final shareOrigin = buttonBox is RenderBox && buttonBox.hasSize
+          ? buttonBox.localToGlobal(Offset.zero) & buttonBox.size
+          : Rect.fromCenter(
+              center: MediaQuery.sizeOf(context).center(Offset.zero),
+              width: 1,
+              height: 1,
+            );
       await Share.shareXFiles(
         [XFile(path, mimeType: 'text/csv')],
         subject: 'HABITEX — Exportação de Hábitos',
         text: 'Meus dados de hábitos exportados do HABITEX.',
+        sharePositionOrigin: shareOrigin,
       );
     } catch (error) {
       if (!mounted) return;
@@ -3019,30 +3147,40 @@ class _ExportarPageState extends State<ExportarPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: CupertinoSlidingSegmentedControl<String>(
-                  groupValue: _periodoSelecionado,
-                  children: const {
-                    'semana': Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('Esta semana'),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final segmentWidth = (constraints.maxWidth - 16) / 3;
+                  Widget segment(String label) {
+                    return SizedBox(
+                      width: segmentWidth,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(label, maxLines: 1, softWrap: false),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return SizedBox(
+                    width: double.infinity,
+                    child: CupertinoSlidingSegmentedControl<String>(
+                      key: const ValueKey('export-period-control'),
+                      groupValue: _periodoSelecionado,
+                      children: {
+                        'semana': segment('Esta semana'),
+                        'mes': segment('Este mês'),
+                        'tudo': segment('Tudo'),
+                      },
+                      onValueChanged: (value) {
+                        if (value != null) {
+                          setState(() => _periodoSelecionado = value);
+                        }
+                      },
                     ),
-                    'mes': Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('Este mês'),
-                    ),
-                    'tudo': Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('Tudo'),
-                    ),
-                  },
-                  onValueChanged: (value) {
-                    if (value != null) {
-                      setState(() => _periodoSelecionado = value);
-                    }
-                  },
-                ),
+                  );
+                },
               ),
             ],
           ),
@@ -3055,6 +3193,7 @@ class _ExportarPageState extends State<ExportarPage> {
         ),
         const SizedBox(height: 32),
         SizedBox(
+          key: _exportButtonKey,
           width: double.infinity,
           child: CupertinoButton(
             color: iosBlue,
@@ -3176,24 +3315,482 @@ class PreviewRow extends StatelessWidget {
   }
 }
 
-class AssinaturaPage extends StatelessWidget {
+class AssinaturaPage extends StatefulWidget {
   const AssinaturaPage({super.key});
 
   @override
+  State<AssinaturaPage> createState() => _AssinaturaPageState();
+}
+
+class _AssinaturaPageState extends State<AssinaturaPage> {
+  String planoSelecionado = 'anual';
+
+  void selecionarPlano(String plano) {
+    setState(() => planoSelecionado = plano);
+  }
+
+  void _assinar() {
+    // TODO: integrar com in_app_purchase ou RevenueCat na v1
+
+    // v0: exibir dialog de confirmação simulada
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (_) => CupertinoAlertDialog(
+        title: const Text('Em breve! 🚀'),
+        content: const Text(
+          'As assinaturas estarão disponíveis na próxima versão do HABITEX. '
+          'Obrigado pelo seu interesse!',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return DrawerSubPageScaffold(
-      title: 'Assinatura Premium',
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 60),
+                  const Text(
+                    '✨',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 52),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'HABITEX PREMIUM',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: iosBlue,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Invista em você. É o melhor investimento.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: iosGray,
+                      fontSize: 15,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  _PremiumPlansSelector(
+                    planoSelecionado: planoSelecionado,
+                    onChanged: selecionarPlano,
+                  ),
+                  const SizedBox(height: 16),
+                  const SizedBox(height: 32),
+                  Text(
+                    'O que está incluído',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _PremiumBenefitsCard(),
+                  const SizedBox(height: 16),
+                  _PremiumTestimonialCard(),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    child: CupertinoButton(
+                      color: iosBlue,
+                      borderRadius: BorderRadius.circular(14),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      onPressed: _assinar,
+                      child: Text(
+                        planoSelecionado == 'anual'
+                            ? 'Começar por R\$ 47,90/ano'
+                            : 'Começar por R\$ 4,90/mês',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '✓  Cancele quando quiser  ·  Sem compromisso',
+                    style: TextStyle(fontSize: 12, color: iosGray),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          // TODO: abrir termos
+                        },
+                        child: const Text(
+                          'Termos de Uso',
+                          style: TextStyle(fontSize: 11, color: iosBlue),
+                        ),
+                      ),
+                      const Text(
+                        '  ·  ',
+                        style: TextStyle(fontSize: 11, color: iosGray),
+                      ),
+                      GestureDetector(
+                        onTap: () {
+                          // TODO: abrir política
+                        },
+                        child: const Text(
+                          'Política de Privacidade',
+                          style: TextStyle(fontSize: 11, color: iosBlue),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 0,
+              child: CupertinoButton(
+                padding: const EdgeInsets.all(10),
+                onPressed: () => Navigator.pop(context),
+                child: Icon(
+                  CupertinoIcons.xmark_circle_fill,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  size: 30,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PremiumPlansSelector extends StatelessWidget {
+  const _PremiumPlansSelector({
+    required this.planoSelecionado,
+    required this.onChanged,
+  });
+
+  final String planoSelecionado;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       children: [
-        IosCard(
-          child: Text(
-            'Recursos premium serao adicionados em uma proxima versao.',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+        Expanded(
+          child: GestureDetector(
+            onTap: () => onChanged('mensal'),
+            child: _PremiumPlanCard(
+              titulo: 'MENSAL',
+              preco: 'R\$ 4,90',
+              subtitulo: 'por mês',
+              selecionado: planoSelecionado == 'mensal',
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: GestureDetector(
+            onTap: () => onChanged('anual'),
+            child: _PremiumPlanCard(
+              titulo: 'ANUAL',
+              preco: 'R\$ 47,90',
+              subtitulo: 'por ano',
+              destaque: 'Economize 19%',
+              tag: 'MAIS POPULAR',
+              selecionado: planoSelecionado == 'anual',
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PremiumPlanCard extends StatelessWidget {
+  const _PremiumPlanCard({
+    required this.titulo,
+    required this.preco,
+    required this.subtitulo,
+    required this.selecionado,
+    this.destaque,
+    this.tag,
+  });
+
+  final String titulo;
+  final String preco;
+  final String subtitulo;
+  final bool selecionado;
+  final String? destaque;
+  final String? tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(width * 0.04),
+          decoration: BoxDecoration(
+            color: selecionado
+                ? iosBlue.withValues(alpha: 0.06)
+                : Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selecionado
+                  ? iosBlue
+                  : Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.12),
+              width: selecionado ? 2 : 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (tag != null) SizedBox(height: width * 0.04),
+              Text(
+                titulo,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selecionado ? iosBlue : iosGray,
+                  letterSpacing: 1,
+                ),
+              ),
+              SizedBox(height: width * 0.02),
+              Text(
+                preco,
+                style: TextStyle(
+                  fontSize: width * 0.055,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              Text(
+                subtitulo,
+                style: const TextStyle(fontSize: 12, color: iosGray),
+              ),
+              if (destaque != null) ...[
+                SizedBox(height: width * 0.015),
+                Text(
+                  destaque!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: iosGreen,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (tag != null)
+          Positioned(
+            top: -10,
+            left: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: iosBlue,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                tag!,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _PremiumBenefitsCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    const beneficios = [
+      (
+        '🔔',
+        'Notificações ilimitadas',
+        'Lembretes personalizados para cada hábito',
+      ),
+      ('📊', 'Estatísticas avançadas', 'Acompanhe sua evolução com detalhes'),
+      (
+        '📥',
+        'Exportação de dados',
+        'Baixe seu histórico em CSV a qualquer momento',
+      ),
+      ('⭐', 'Sem anúncios', 'Experiência limpa, sem interrupções'),
+      ('💬', 'Suporte prioritário', 'Atendimento direto para assinantes'),
+    ];
+
+    return IosCard(
+      child: Column(
+        children: [
+          for (var index = 0; index < beneficios.length; index++) ...[
+            _PremiumBenefitRow(
+              icon: beneficios[index].$1,
+              title: beneficios[index].$2,
+              subtitle: beneficios[index].$3,
+            ),
+            if (index < beneficios.length - 1) const _PremiumBenefitDivider(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumBenefitRow extends StatelessWidget {
+  const _PremiumBenefitRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: iosGreen.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          alignment: Alignment.center,
+          child: Text(icon, style: const TextStyle(fontSize: 16)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 12, color: iosGray),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        const Icon(
+          CupertinoIcons.checkmark_circle_fill,
+          color: iosGreen,
+          size: 18,
+        ),
+      ],
+    );
+  }
+}
+
+class _PremiumBenefitDivider extends StatelessWidget {
+  const _PremiumBenefitDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Divider(
+        height: 1,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
+      ),
+    );
+  }
+}
+
+class _PremiumTestimonialCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: 0.06),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: List.generate(
+              5,
+              (_) => const Text('⭐', style: TextStyle(fontSize: 14)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '"Finalmente um app que reúne tudo que preciso. '
+            'Minha rotina mudou completamente."',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurface,
+              fontStyle: FontStyle.italic,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '— Ana P., usuária Premium',
+            style: TextStyle(fontSize: 12, color: iosGray),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3833,6 +4430,10 @@ class HabitoFormModal extends StatefulWidget {
 }
 
 class _HabitoFormModalState extends State<HabitoFormModal> {
+  static const allDays = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
+  static const weekdays = ['seg', 'ter', 'qua', 'qui', 'sex'];
+  static const weekend = ['sab', 'dom'];
+
   late final TextEditingController iconController;
   late final TextEditingController nameController;
   late final TextEditingController goalController;
@@ -3846,8 +4447,11 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
   String get _labelBotao => _isEdicao ? 'Salvar alterações' : 'Criar hábito';
 
   void setFrequency(List<String> days) {
-    setState(() => frequency = days);
+    setState(() => frequency = List<String>.of(days));
   }
+
+  bool hasFrequency(List<String> days) =>
+      frequency.length == days.length && days.every(frequency.contains);
 
   void toggleFrequencyDay(String dayId) {
     setState(() {
@@ -4049,7 +4653,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                       ),
                       Expanded(
                         child: SheetSegment(
-                          label: 'Binário',
+                          label: 'Sim/Não',
                           selected: type == 'binary',
                           onTap: () => setState(() => type = 'binary'),
                         ),
@@ -4168,6 +4772,28 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FrequencyPresetButton(
+                            label: 'Todos os dias',
+                            selected: hasFrequency(allDays),
+                            onPressed: () => setFrequency(allDays),
+                          ),
+                          FrequencyPresetButton(
+                            label: 'Dias úteis',
+                            selected: hasFrequency(weekdays),
+                            onPressed: () => setFrequency(weekdays),
+                          ),
+                          FrequencyPresetButton(
+                            label: 'Fim de semana',
+                            selected: hasFrequency(weekend),
+                            onPressed: () => setFrequency(weekend),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       Wrap(
@@ -4738,6 +5364,40 @@ class UnitQuickButton extends StatelessWidget {
   }
 }
 
+class FrequencyPresetButton extends StatelessWidget {
+  const FrequencyPresetButton({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      minimumSize: const Size(32, 34),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      color: selected ? iosBlue : Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(17),
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: selected
+              ? Colors.white
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class RoundIconButton extends StatelessWidget {
   const RoundIconButton({
     super.key,
@@ -4883,16 +5543,12 @@ Color habitCalendarDotColor(
 HabitConsistency? mostConsistentHabit(HabitexStore store) {
   if (store.habits.isEmpty) return null;
 
-  final dates = last7Dates();
   final results = [
     for (final habit in store.habits)
       HabitConsistency(
         habit: habit,
         scheduledDays: diasRelevantesNaSemana(habit, store.habitProgress),
-        completedDays: dates.where((date) {
-          final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
-          return isHabitComplete(habit, value);
-        }).length,
+        completedDays: calcStreakPorHabito(habit, store.habitProgress),
       ),
   ];
   results.sort((a, b) => b.completedDays.compareTo(a.completedDays));
@@ -4940,7 +5596,7 @@ int calcStreakPorHabito(
 ) {
   var streak = 0;
   var day = DateTime.now();
-  for (var index = 0; index < 365; index++) {
+  for (var index = 0; index < 7; index++) {
     final key = dateKey(day);
     final weekday = dayId(day);
     final value = habitProgress[key]?[habit.id] ?? 0;
@@ -5011,20 +5667,37 @@ double calcPercentualHabito(
   Habit habit,
   Map<String, Map<String, int>> habitProgress,
 ) {
-  var countedDays = 0;
+  return _habitCompletionRateForDates(
+    habit,
+    habitProgress,
+    last7Dates(),
+  ).percent;
+}
+
+HabitCompletionRate _habitCompletionRateForDates(
+  Habit habit,
+  Map<String, Map<String, int>> habitProgress,
+  List<DateTime> dates,
+) {
+  var scheduledDays = 0;
   var completedDays = 0;
 
-  for (var index = 0; index < 7; index++) {
-    final date = DateTime.now().subtract(Duration(days: index));
-    if (!shouldCountHabitStatDay(habit, date, habitProgress)) continue;
-
+  for (final date in dates) {
     final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
-    countedDays++;
+    if (habit.frequency.contains(dayId(date))) scheduledDays++;
     if (isHabitComplete(habit, value)) completedDays++;
   }
 
-  if (countedDays == 0) return 0;
-  return completedDays / countedDays;
+  final percent = scheduledDays == 0
+      ? 0.0
+      : (completedDays / scheduledDays).clamp(0.0, 1.0);
+
+  return HabitCompletionRate(
+    habit: habit,
+    completedDays: completedDays,
+    scheduledDays: scheduledDays,
+    percent: percent,
+  );
 }
 
 HabitCompletionRate habitCompletionRateForDates(
@@ -5032,28 +5705,51 @@ HabitCompletionRate habitCompletionRateForDates(
   Habit habit,
   List<DateTime> dates,
 ) {
-  var countedDays = 0;
-  var completedDays = 0;
-
-  for (final date in dates) {
-    if (!shouldCountHabitStatDay(habit, date, store.habitProgress)) continue;
-    countedDays++;
-    final value = store.habitProgress[dateKey(date)]?[habit.id] ?? 0;
-    if (isHabitComplete(habit, value)) completedDays++;
-  }
-
-  return HabitCompletionRate(
-    habit: habit,
-    completedDays: completedDays,
-    scheduledDays: countedDays,
-    percent: calcPercentualHabito(habit, store.habitProgress),
-  );
+  return _habitCompletionRateForDates(habit, store.habitProgress, dates);
 }
 
 Color corDoPercentual(double percentual) {
   if (percentual >= 0.8) return iosGreen;
   if (percentual >= 0.5) return iosOrange;
   return iosRed;
+}
+
+List<DateTime> exportDatesForPeriod(
+  String period, {
+  required DateTime startedAt,
+  DateTime? now,
+}) {
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+
+  if (period == 'semana') {
+    return [
+      for (var index = 6; index >= 0; index--)
+        today.subtract(Duration(days: index)),
+    ];
+  }
+
+  final monthStart = DateTime(today.year, today.month);
+  if (period == 'mes') {
+    final totalDays = today.difference(monthStart).inDays;
+    return [
+      for (var index = 0; index <= totalDays; index++)
+        monthStart.add(Duration(days: index)),
+    ];
+  }
+
+  if (period != 'tudo') return [];
+  final normalizedStart = DateTime(
+    startedAt.year,
+    startedAt.month,
+    startedAt.day,
+  );
+  final historyStart = normalizedStart.isAfter(today) ? today : normalizedStart;
+  final totalDays = today.difference(historyStart).inDays;
+  return [
+    for (var index = 0; index <= totalDays; index++)
+      historyStart.add(Duration(days: index)),
+  ];
 }
 
 String normalizeHabitUnit(String unit) {
