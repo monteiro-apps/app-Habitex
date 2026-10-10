@@ -51,7 +51,7 @@ const iosRed = Color(0xFFFF6B63);
 const calendarFree = Color(0xFFF0F0F3);
 const habitsSchemaVersion = 2;
 
-enum AppTab { rotina, notas, habitos }
+enum AppTab { perfil, lembretes, habitos, notas }
 
 class HabitexApp extends StatefulWidget {
   const HabitexApp({super.key});
@@ -92,26 +92,7 @@ class _HabitexAppState extends State<HabitexApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Habitex',
-      themeMode: store.themeMode,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        fontFamily: '.SF Pro Text',
-        scaffoldBackgroundColor: const Color(0xFFF2F2F7),
-        colorScheme: const ColorScheme(
-          brightness: Brightness.light,
-          primary: Color(0xFF007AFF),
-          onPrimary: Colors.white,
-          secondary: Color(0xFF34C759),
-          onSecondary: Colors.white,
-          error: Color(0xFFFF6B63),
-          onError: Colors.white,
-          surface: Color(0xFFFFFFFF),
-          onSurface: Color(0xFF1C1C1E),
-          surfaceContainerHighest: Color(0xFFE5E5EA),
-          onSurfaceVariant: Color(0xFF8E8E93),
-        ),
-      ),
+      themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -129,6 +110,11 @@ class _HabitexAppState extends State<HabitexApp> {
           onSurface: Color(0xFFFFFFFF),
           surfaceContainerHighest: Color(0xFF2C2C2E),
           onSurfaceVariant: Color(0xFF8E8E93),
+        ),
+        textTheme: Typography.whiteCupertino.apply(
+          fontFamily: '.SF Pro Text',
+          bodyColor: Colors.white,
+          displayColor: Colors.white,
         ),
       ),
       home: SplashPage(
@@ -150,7 +136,7 @@ class HabitexHome extends StatefulWidget {
 }
 
 class _HabitexHomeState extends State<HabitexHome> {
-  AppTab currentTab = AppTab.rotina;
+  AppTab currentTab = AppTab.perfil;
 
   @override
   void initState() {
@@ -181,9 +167,10 @@ class _HabitexHomeState extends State<HabitexHome> {
   Widget build(BuildContext context) {
     final store = widget.store;
     final page = switch (currentTab) {
-      AppTab.rotina => RotinaPage(store: store),
-      AppTab.notas => NotasPage(store: store),
+      AppTab.perfil => PerfilDashboardPage(store: store),
+      AppTab.lembretes => RotinaPage(store: store),
       AppTab.habitos => HabitosPage(store: store),
+      AppTab.notas => NotasPage(store: store),
     };
 
     return Scaffold(
@@ -214,7 +201,7 @@ class HabitexStore {
   Map<String, Map<String, int>> habitProgress = {};
   DateTime startedAt = DateTime.now();
   UserProfile profile = const UserProfile();
-  ThemeMode themeMode = ThemeMode.light;
+  ThemeMode themeMode = ThemeMode.dark;
   bool notifRotina = false;
   String notifRotinaHora = '08:00';
   Map<String, bool> notifHabitos = {};
@@ -236,7 +223,7 @@ class HabitexStore {
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromPrefs(_prefs);
-    themeMode = themeModeFromString(_prefs?.getString('habitex.themeMode'));
+    themeMode = ThemeMode.dark;
     notifRotina = _prefs?.getBool('habitex.notifRotina') ?? false;
     notifRotinaHora = _prefs?.getString('habitex.notifRotinaHora') ?? '08:00';
     final savedSchemaVersion =
@@ -716,6 +703,650 @@ const weekDays = [
 
 List<Habit> defaultHabits() => [];
 
+class PerfilDashboardPage extends StatelessWidget {
+  const PerfilDashboardPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final week = currentWeekDates(now);
+    final scheduled = weeklyScheduledGoals(store.habits, week);
+    final completed = weeklyCompletedGoals(store, week);
+    final progress = scheduled == 0 ? 0.0 : completed / scheduled;
+    final rates = habitCompletionRates(store);
+    final topHabit = rates.isEmpty ? null : rates.first;
+    final todayTasks = store.tasksByDay[dayId(now)] ?? [];
+    final name = store.profile.nickname.trim().isEmpty
+        ? 'Você'
+        : store.profile.nickname.trim();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 112),
+      children: [
+        Row(
+          children: [
+            ProfileAvatarButton(profile: store.profile),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    greetingFor(now),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              formatDashboardDate(now),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 28),
+        IosCard(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'HÁBITOS DA SEMANA',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '$completed de $scheduled',
+                      style: const TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'metas de hábitos concluídas',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ProgressRing(progress: progress, size: 82),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            const Expanded(child: DashboardSectionTitle(title: 'Sua semana')),
+            CupertinoButton(
+              key: const ValueKey('open-month-calendar'),
+              minimumSize: const Size(34, 34),
+              padding: EdgeInsets.zero,
+              onPressed: () => showHabitMonthCalendar(context, store),
+              child: Icon(
+                CupertinoIcons.calendar,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 19,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: () => showHabitMonthCalendar(context, store),
+          child: IosCard(
+            borderRadius: 18,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                for (final date in week)
+                  DashboardDay(
+                    date: date,
+                    selected: isSameDate(date, now),
+                    completed: allHabitsCompletedForDate(store, date),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const DashboardSectionTitle(title: 'Top hábito'),
+        const SizedBox(height: 10),
+        IosCard(
+          borderRadius: 18,
+          child: topHabit == null
+              ? const DashboardEmptyText(
+                  text: 'Crie um hábito para acompanhar seu progresso.',
+                )
+              : Row(
+                  children: [
+                    Text(
+                      topHabit.habit.icon,
+                      style: const TextStyle(fontSize: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            topHabit.habit.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${topHabit.completedDays}/${topHabit.scheduledDays} dias concluídos',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${(topHabit.percent * 100).round()}%',
+                      style: const TextStyle(
+                        color: iosGreen,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 24),
+        const DashboardSectionTitle(title: 'Lembretes de hoje'),
+        const SizedBox(height: 10),
+        IosCard(
+          borderRadius: 18,
+          padding: EdgeInsets.zero,
+          child: todayTasks.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(18),
+                  child: DashboardEmptyText(text: 'Nenhum lembrete para hoje.'),
+                )
+              : Column(
+                  children: [
+                    for (final task in todayTasks.take(4))
+                      DashboardReminderRow(
+                        task: task,
+                        onTap: () => store.toggleTask(dayId(now), task.id),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class ProgressRing extends StatelessWidget {
+  const ProgressRing({super.key, required this.progress, this.size = 72});
+
+  final double progress;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = progress.clamp(0.0, 1.0);
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox.square(
+            dimension: size,
+            child: CircularProgressIndicator(
+              value: normalized,
+              strokeWidth: 6,
+              strokeCap: StrokeCap.round,
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest,
+              valueColor: const AlwaysStoppedAnimation<Color>(iosBlue),
+            ),
+          ),
+          Text(
+            '${(normalized * 100).round()}%',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DashboardSectionTitle extends StatelessWidget {
+  const DashboardSectionTitle({super.key, required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w500),
+    );
+  }
+}
+
+class DashboardDay extends StatelessWidget {
+  const DashboardDay({
+    super.key,
+    required this.date,
+    required this.selected,
+    required this.completed,
+  });
+
+  final DateTime date;
+  final bool selected;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+    return Column(
+      children: [
+        Text(
+          labels[date.weekday - 1],
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: completed
+                ? iosGreen.withValues(alpha: 0.14)
+                : selected
+                ? iosBlue
+                : Colors.transparent,
+            shape: BoxShape.circle,
+            border: completed
+                ? Border.all(
+                    color: iosGreen.withValues(alpha: 0.75),
+                    width: 1.2,
+                  )
+                : null,
+          ),
+          child: Text(
+            '${date.day}',
+            style: TextStyle(
+              fontSize: 13,
+              color: completed ? iosGreen : Colors.white,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+bool allHabitsCompletedForDate(HabitexStore store, DateTime date) {
+  final today = DateTime.now();
+  final normalizedDate = DateTime(date.year, date.month, date.day);
+  final normalizedToday = DateTime(today.year, today.month, today.day);
+  if (normalizedDate.isAfter(normalizedToday)) return false;
+
+  final scheduledHabits = store.habits
+      .where((habit) => habit.frequency.contains(dayId(date)))
+      .toList();
+  if (scheduledHabits.isEmpty) return false;
+
+  final progress = store.habitProgress[dateKey(date)] ?? {};
+  return scheduledHabits.every(
+    (habit) => isHabitComplete(habit, progress[habit.id] ?? 0),
+  );
+}
+
+Future<void> showHabitMonthCalendar(BuildContext context, HabitexStore store) {
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.72),
+    builder: (_) => HabitMonthCalendarDialog(store: store),
+  );
+}
+
+class HabitMonthCalendarDialog extends StatefulWidget {
+  const HabitMonthCalendarDialog({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  State<HabitMonthCalendarDialog> createState() =>
+      _HabitMonthCalendarDialogState();
+}
+
+class _HabitMonthCalendarDialogState extends State<HabitMonthCalendarDialog> {
+  late DateTime visibleMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+  );
+
+  void changeMonth(int offset) {
+    setState(() {
+      visibleMonth = DateTime(visibleMonth.year, visibleMonth.month + offset);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final firstWeekdayOffset = visibleMonth.weekday - 1;
+    final daysInMonth = DateTime(
+      visibleMonth.year,
+      visibleMonth.month + 1,
+      0,
+    ).day;
+    final totalCells = ((firstWeekdayOffset + daysInMonth + 6) ~/ 7) * 7;
+
+    return Dialog(
+      key: const ValueKey('habit-month-calendar-dialog'),
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 32),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: IosCard(
+          borderRadius: 20,
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  CupertinoButton(
+                    minimumSize: const Size(40, 40),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => changeMonth(-1),
+                    child: const Icon(
+                      CupertinoIcons.chevron_left,
+                      color: iosGray,
+                      size: 18,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      monthTitle(visibleMonth),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    minimumSize: const Size(40, 40),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => changeMonth(1),
+                    child: const Icon(
+                      CupertinoIcons.chevron_right,
+                      color: iosGray,
+                      size: 18,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  for (final label in ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'])
+                    Expanded(
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: iosGray,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  mainAxisExtent: 42,
+                ),
+                itemCount: totalCells,
+                itemBuilder: (context, index) {
+                  final day = index - firstWeekdayOffset + 1;
+                  if (day < 1 || day > daysInMonth) {
+                    return const SizedBox.shrink();
+                  }
+                  final date = DateTime(
+                    visibleMonth.year,
+                    visibleMonth.month,
+                    day,
+                  );
+                  return MonthCalendarDay(
+                    date: date,
+                    selected: isSameDate(date, DateTime.now()),
+                    completed: allHabitsCompletedForDate(widget.store, date),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Fechar',
+                  style: TextStyle(color: iosBlue, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MonthCalendarDay extends StatelessWidget {
+  const MonthCalendarDay({
+    super.key,
+    required this.date,
+    required this.selected,
+    required this.completed,
+  });
+
+  final DateTime date;
+  final bool selected;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 32,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: completed
+              ? iosGreen.withValues(alpha: 0.14)
+              : selected
+              ? iosBlue
+              : Colors.transparent,
+          shape: BoxShape.circle,
+          border: completed
+              ? Border.all(color: iosGreen.withValues(alpha: 0.75), width: 1.2)
+              : null,
+        ),
+        child: Text(
+          '${date.day}',
+          style: TextStyle(
+            color: completed
+                ? iosGreen
+                : selected
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurface,
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String monthTitle(DateTime date) {
+  const months = [
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro',
+  ];
+  return '${months[date.month - 1]} ${date.year}';
+}
+
+class DashboardReminderRow extends StatelessWidget {
+  const DashboardReminderRow({
+    super.key,
+    required this.task,
+    required this.onTap,
+  });
+
+  final RoutineTask task;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      onPressed: onTap,
+      child: Row(
+        children: [
+          Icon(
+            task.done
+                ? CupertinoIcons.check_mark_circled_solid
+                : CupertinoIcons.circle,
+            color: task.done
+                ? iosGreen
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 21,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              task.text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: task.done
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : Theme.of(context).colorScheme.onSurface,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DashboardEmptyText extends StatelessWidget {
+  const DashboardEmptyText({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
+      ),
+    );
+  }
+}
+
+String greetingFor(DateTime date) {
+  if (date.hour < 12) return 'Bom dia';
+  if (date.hour < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+String formatDashboardDate(DateTime date) {
+  const months = [
+    'jan',
+    'fev',
+    'mar',
+    'abr',
+    'mai',
+    'jun',
+    'jul',
+    'ago',
+    'set',
+    'out',
+    'nov',
+    'dez',
+  ];
+  return '${date.day} ${months[date.month - 1]}';
+}
+
 class RotinaPage extends StatefulWidget {
   const RotinaPage({super.key, required this.store});
 
@@ -767,17 +1398,10 @@ class _RotinaPageState extends State<RotinaPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: HabitexHeader(
-                title: 'Hoje',
-                subtitle: '${tasks.length} tarefas na rotina',
-              ),
-            ),
-            ProfileAvatarButton(profile: widget.store.profile),
-          ],
+        HabitexHeader(
+          title: 'Lembretes',
+          subtitle:
+              '${tasks.length} atividades para ${selectedWeekDay.full.toLowerCase()}',
         ),
         const SizedBox(height: 18),
         SingleChildScrollView(
@@ -842,7 +1466,7 @@ class _RotinaPageState extends State<RotinaPage> {
                             color: Theme.of(
                               context,
                             ).colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
@@ -872,7 +1496,7 @@ class _RotinaPageState extends State<RotinaPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const Spacer(),
@@ -892,7 +1516,7 @@ class _RotinaPageState extends State<RotinaPage> {
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
@@ -1015,7 +1639,7 @@ class _NotasPageState extends State<NotasPage> {
                                   context,
                                 ).colorScheme.onSurfaceVariant,
                                 fontSize: 16,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -1026,7 +1650,7 @@ class _NotasPageState extends State<NotasPage> {
                                   context,
                                 ).colorScheme.onSurfaceVariant,
                                 fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -1119,7 +1743,7 @@ class UserAvatar extends StatelessWidget {
               style: TextStyle(
                 color: Colors.white,
                 fontSize: size * 0.42,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w600,
               ),
             )
           : null,
@@ -1206,7 +1830,7 @@ class DadosGeraisMenu extends StatelessWidget {
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -1221,8 +1845,6 @@ class DadosGeraisMenu extends StatelessWidget {
                   title: 'Perfil',
                   onTap: () => openPage(context, PerfilPage(store: store)),
                 ),
-                DrawerDivider(),
-                TemaSwitcher(store: store),
                 DrawerDivider(),
                 DadosGeraisTile(
                   icon: CupertinoIcons.chart_bar_alt_fill,
@@ -1300,7 +1922,7 @@ class DadosGeraisTile extends StatelessWidget {
                 style: TextStyle(
                   color: color ?? Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -1470,7 +2092,7 @@ class _PerfilPageState extends State<PerfilPage> {
         onPressed: saving ? null : save,
         child: Text(
           saving ? 'Salvando...' : 'Salvar',
-          style: const TextStyle(color: iosBlue, fontWeight: FontWeight.w900),
+          style: const TextStyle(color: iosBlue, fontWeight: FontWeight.w600),
         ),
       ),
       children: [
@@ -1492,13 +2114,6 @@ class _PerfilPageState extends State<PerfilPage> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       shape: BoxShape.circle,
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x1A000000),
-                          blurRadius: 8,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
                     ),
                     child: const Icon(
                       CupertinoIcons.camera_fill,
@@ -1522,7 +2137,7 @@ class _PerfilPageState extends State<PerfilPage> {
               }),
               child: const Text(
                 'Remover foto',
-                style: TextStyle(color: iosRed, fontWeight: FontWeight.w800),
+                style: TextStyle(color: iosRed, fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -1607,7 +2222,7 @@ class DrawerSubPageScaffold extends StatelessWidget {
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
                       fontSize: w * 0.055,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1779,7 +2394,7 @@ class ConsistentHabitCard extends StatelessWidget {
               style: TextStyle(
                 color: iosGreen,
                 fontSize: ui.fonteCorpo,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
               ),
             )
           : Row(
@@ -1846,14 +2461,6 @@ class StreakCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.04),
-            blurRadius: 8,
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1879,7 +2486,7 @@ class StreakCard extends StatelessWidget {
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: ui.fonteSecundaria,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             )
           else
@@ -1993,15 +2600,6 @@ class WeeklyBarsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2229,7 +2827,7 @@ class HabitRatesSection extends StatelessWidget {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: ui.fonteCorpo,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
           ),
         ),
       );
@@ -2243,7 +2841,7 @@ class HabitRatesSection extends StatelessWidget {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurface,
             fontSize: ui.fonteTitulo,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w600,
           ),
         ),
         SizedBox(height: ui.paddingCard * 0.65),
@@ -2272,15 +2870,6 @@ class HabitRateCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -2496,7 +3085,7 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurface,
             fontSize: 17,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 4),
@@ -2514,7 +3103,7 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
               'Cadastre hábitos para configurar lembretes.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
           )
@@ -2562,7 +3151,7 @@ class NotificationSectionHeader extends StatelessWidget {
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 4),
@@ -2613,7 +3202,7 @@ class NotificationTimeButton extends StatelessWidget {
             label,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(width: 8),
@@ -2621,7 +3210,7 @@ class NotificationTimeButton extends StatelessWidget {
             value,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -2666,7 +3255,7 @@ class HabitNotificationCard extends StatelessWidget {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -2702,7 +3291,7 @@ class HabitNotificationCard extends StatelessWidget {
                       style: TextStyle(
                         color: iosBlue,
                         fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -2741,7 +3330,7 @@ class NotificationHourChip extends StatelessWidget {
             style: const TextStyle(
               color: iosBlue,
               fontSize: 12,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
           CupertinoButton(
@@ -2781,7 +3370,7 @@ Future<TimeOfDay?> pickNotificationTime(
                       'Cancelar',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -2792,7 +3381,7 @@ Future<TimeOfDay?> pickNotificationTime(
                       'Salvar',
                       style: TextStyle(
                         color: iosBlue,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -3125,7 +3714,7 @@ class _ExportarPageState extends State<ExportarPage> {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurface,
             fontSize: 22,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 6),
@@ -3143,7 +3732,7 @@ class _ExportarPageState extends State<ExportarPage> {
                 'Período',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 12),
@@ -3295,7 +3884,7 @@ class PreviewRow extends StatelessWidget {
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],
@@ -3377,7 +3966,7 @@ class _AssinaturaPageState extends State<AssinaturaPage> {
                     style: TextStyle(
                       color: iosBlue,
                       fontSize: 22,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w600,
                       letterSpacing: 2,
                     ),
                   ),
@@ -3404,7 +3993,7 @@ class _AssinaturaPageState extends State<AssinaturaPage> {
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 16,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -3425,7 +4014,7 @@ class _AssinaturaPageState extends State<AssinaturaPage> {
                             : 'Começar por R\$ 4,90/mês',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                           fontSize: 16,
                         ),
                       ),
@@ -3583,7 +4172,7 @@ class _PremiumPlanCard extends StatelessWidget {
                 titulo,
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: selecionado ? iosBlue : iosGray,
                   letterSpacing: 1,
                 ),
@@ -3758,11 +4347,6 @@ class _PremiumTestimonialCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: 0.06),
-        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3810,13 +4394,13 @@ class StatLine extends StatelessWidget {
             label,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
         Text(
           value,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -3880,34 +4464,108 @@ class _HabitosPageState extends State<HabitosPage> {
   Widget build(BuildContext context) {
     final todayKey = dateKey(DateTime.now());
     final todayProgress = widget.store.habitProgress[todayKey] ?? {};
+    final todayHabits = widget.store.habits.where((habit) {
+      return shouldCountHabitStatDay(
+        habit,
+        DateTime.now(),
+        widget.store.habitProgress,
+      );
+    }).toList();
+    final completedToday = todayHabits.where((habit) {
+      return isHabitComplete(habit, todayProgress[habit.id] ?? 0);
+    }).length;
+    final dailyProgress = todayHabits.isEmpty
+        ? 0.0
+        : completedToday / todayHabits.length;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 112),
       children: [
-        const HabitexHeader(title: 'Hábitos', subtitle: 'Progresso de hoje'),
-        const SizedBox(height: 18),
-        CupertinoButton(
-          color: iosBlue,
-          borderRadius: BorderRadius.circular(12),
-          onPressed: () => _abrirModalHabito(context),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+        Row(
+          children: [
+            const Expanded(
+              child: HabitexHeader(
+                title: 'Hábitos',
+                subtitle: 'Seu ritmo de hoje',
+              ),
+            ),
+            UserAvatar(profile: widget.store.profile, size: 38),
+          ],
+        ),
+        const SizedBox(height: 24),
+        IosCard(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(20),
+          child: Row(
             children: [
-              Icon(CupertinoIcons.add, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Criar novo hábito',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'PROGRESSO DO DIA',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '$completedToday/${todayHabits.length}',
+                      style: const TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      completedToday == todayHabits.length &&
+                              todayHabits.isNotEmpty
+                          ? 'Tudo concluído por hoje'
+                          : 'Continue no seu ritmo',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              ProgressRing(progress: dailyProgress, size: 78),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        HabitWeekCalendar(store: widget.store),
-        const SizedBox(height: 16),
+        const SizedBox(height: 26),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Seus hábitos',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w500),
+              ),
+            ),
+            CupertinoButton(
+              key: const ValueKey('add-habit-button'),
+              minimumSize: const Size(42, 42),
+              padding: EdgeInsets.zero,
+              color: iosBlue,
+              borderRadius: BorderRadius.circular(21),
+              onPressed: () => _abrirModalHabito(context),
+              child: const Icon(CupertinoIcons.add, color: Colors.white),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (widget.store.habits.isEmpty)
+          const IosCard(
+            borderRadius: 18,
+            child: DashboardEmptyText(
+              text: 'Toque em + para criar seu primeiro hábito.',
+            ),
+          ),
         for (final habit in widget.store.habits) ...[
           SwipeableHabitCard(
             key: ValueKey('habit-${habit.id}'),
@@ -3918,6 +4576,8 @@ class _HabitosPageState extends State<HabitosPage> {
               child: HabitCard(
                 habit: habit,
                 value: todayProgress[habit.id] ?? 0,
+                onEdit: () =>
+                    _abrirModalHabito(context, habitoParaEditar: habit),
                 onChange: (value) =>
                     widget.store.updateHabitProgress(habit, value),
               ),
@@ -3925,19 +4585,6 @@ class _HabitosPageState extends State<HabitosPage> {
           ),
           const SizedBox(height: 12),
         ],
-        if (widget.store.habits.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              'Segure um hábito para editar',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
       ],
     );
   }
@@ -4029,7 +4676,7 @@ class DeleteHabitAction extends StatelessWidget {
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -4074,7 +4721,7 @@ class HabitWeekCalendar extends StatelessWidget {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -4091,7 +4738,7 @@ class HabitWeekCalendar extends StatelessWidget {
                       '$completion%',
                       style: const TextStyle(
                         color: iosBlue,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -4127,7 +4774,7 @@ class HabitWeekCalendar extends StatelessWidget {
                                     context,
                                   ).colorScheme.onSurfaceVariant,
                                   fontSize: 11,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                               const SizedBox(height: 5),
@@ -4152,7 +4799,7 @@ class HabitWeekCalendar extends StatelessWidget {
                                             context,
                                           ).colorScheme.onSurface,
                                     fontSize: 13,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
@@ -4198,7 +4845,7 @@ class HabitWeekCalendar extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 14,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w600,
                                     color: Theme.of(
                                       context,
                                     ).colorScheme.onSurface,
@@ -4274,7 +4921,7 @@ class CalendarLegendDot extends StatelessWidget {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 11,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -4307,11 +4954,13 @@ class HabitCard extends StatelessWidget {
     super.key,
     required this.habit,
     required this.value,
+    required this.onEdit,
     required this.onChange,
   });
 
   final Habit habit;
   final int value;
+  final VoidCallback onEdit;
   final ValueChanged<int> onChange;
 
   @override
@@ -4319,9 +4968,7 @@ class HabitCard extends StatelessWidget {
     final complete = isHabitComplete(habit, value);
 
     return IosCard(
-      color: complete
-          ? Theme.of(context).colorScheme.secondary.withValues(alpha: 0.15)
-          : Theme.of(context).colorScheme.surface,
+      borderRadius: 18,
       child: Row(
         children: [
           Container(
@@ -4329,7 +4976,7 @@ class HabitCard extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
             ),
             alignment: Alignment.center,
             child: Text(habit.icon, style: const TextStyle(fontSize: 24)),
@@ -4346,7 +4993,7 @@ class HabitCard extends StatelessWidget {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 17,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -4356,7 +5003,7 @@ class HabitCard extends StatelessWidget {
                       : '$value/${habit.goal} ${habit.unit}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
                 if (!habit.isBinary) ...[
@@ -4366,13 +5013,26 @@ class HabitCard extends StatelessWidget {
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ],
               ],
             ),
           ),
+          CupertinoButton(
+            minimumSize: const Size(38, 38),
+            padding: EdgeInsets.zero,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(19),
+            onPressed: onEdit,
+            child: Icon(
+              CupertinoIcons.pencil,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 8),
           if (habit.isBinary)
             CupertinoButton(
               minimumSize: const Size(40, 40),
@@ -4575,7 +5235,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                         'Cancelar',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
@@ -4586,7 +5246,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                         _labelBotao,
                         style: const TextStyle(
                           color: iosBlue,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
@@ -4597,7 +5257,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 24,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -4706,7 +5366,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                       style: const TextStyle(
                         color: iosBlue,
                         fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -4770,7 +5430,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -4921,7 +5581,7 @@ class _NoteSheetState extends State<NoteSheet> {
                     'Cancelar',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
@@ -4932,7 +5592,7 @@ class _NoteSheetState extends State<NoteSheet> {
                     'Salvar',
                     style: TextStyle(
                       color: iosBlue,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -4941,7 +5601,7 @@ class _NoteSheetState extends State<NoteSheet> {
             TextField(
               controller: titleController,
               autofocus: true,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 hintText: 'Título',
@@ -4993,16 +5653,20 @@ class HabitexTabBar extends StatelessWidget {
           type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(CupertinoIcons.list_bullet),
-              label: 'Rotina',
+              icon: Icon(CupertinoIcons.person_crop_circle),
+              label: 'Perfil',
             ),
             BottomNavigationBarItem(
-              icon: Icon(CupertinoIcons.doc_text),
-              label: 'Notas',
+              icon: Icon(CupertinoIcons.checkmark_alt_circle),
+              label: 'Lembretes',
             ),
             BottomNavigationBarItem(
               icon: Icon(CupertinoIcons.sparkles),
               label: 'Hábitos',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(CupertinoIcons.doc_text),
+              label: 'Notas',
             ),
           ],
         ),
@@ -5027,7 +5691,7 @@ class HabitexHeader extends StatelessWidget {
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w400,
           ),
         ),
         const SizedBox(height: 4),
@@ -5036,7 +5700,7 @@ class HabitexHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 34,
             height: 1,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w600,
             color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
@@ -5066,13 +5730,6 @@ class IosCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
       ),
       child: child,
     );
@@ -5110,7 +5767,7 @@ class DayChip extends StatelessWidget {
               ? Colors.white
               : Theme.of(context).colorScheme.onSurface,
           fontSize: compact ? 12 : 14,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -5249,7 +5906,7 @@ class FieldBox extends StatelessWidget {
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 12,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
             ),
           ),
           TextField(
@@ -5257,7 +5914,7 @@ class FieldBox extends StatelessWidget {
             textAlign: textAlign,
             keyboardType: keyboardType,
             obscureText: obscureText,
-            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w900),
+            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               border: InputBorder.none,
               isDense: true,
@@ -5297,7 +5954,7 @@ class SheetSegment extends StatelessWidget {
           color: selected
               ? Theme.of(context).colorScheme.onSurface
               : Theme.of(context).colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -5327,7 +5984,7 @@ class FrequencyQuickButton extends StatelessWidget {
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -5357,7 +6014,7 @@ class UnitQuickButton extends StatelessWidget {
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -5391,7 +6048,7 @@ class FrequencyPresetButton extends StatelessWidget {
               ? Colors.white
               : Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

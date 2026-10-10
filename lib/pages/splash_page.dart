@@ -4,7 +4,7 @@ import 'package:habitex/pages/login_page.dart';
 import 'package:habitex/services/auth_service.dart';
 
 const _iosBlue = Color(0xFF007AFF);
-const _iosBg = Color(0xFFF2F2F7);
+const _iosBg = Color(0xFF000000);
 const _iosGray = Color(0xFF8E8E93);
 
 class SplashPage extends StatefulWidget {
@@ -59,7 +59,7 @@ class _SplashPageState extends State<SplashPage> {
               style: TextStyle(
                 color: _iosBlue,
                 fontSize: 36,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w500,
               ),
             ),
             SizedBox(height: 8),
@@ -68,7 +68,7 @@ class _SplashPageState extends State<SplashPage> {
               style: TextStyle(
                 color: _iosGray,
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],

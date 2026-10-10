@@ -4,8 +4,8 @@ import 'package:habitex/pages/cadastro_page.dart';
 import 'package:habitex/services/auth_service.dart';
 
 const _iosBlue = Color(0xFF007AFF);
-const _iosBg = Color(0xFFF2F2F7);
-const _iosCard = Color(0xFFFFFFFF);
+const _iosBg = Color(0xFF000000);
+const _iosCard = Color(0xFF1C1C1E);
 const _iosGray = Color(0xFF8E8E93);
 
 class LoginPage extends StatefulWidget {
@@ -149,7 +149,7 @@ class _LoginPageState extends State<LoginPage> {
                       style: TextStyle(
                         color: _iosBlue,
                         fontSize: 32,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -159,7 +159,7 @@ class _LoginPageState extends State<LoginPage> {
                       style: TextStyle(
                         color: _iosGray,
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 40),
@@ -193,7 +193,7 @@ class _LoginPageState extends State<LoginPage> {
                           style: TextStyle(
                             color: _iosBlue,
                             fontSize: 13,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                       ),
@@ -211,7 +211,7 @@ class _LoginPageState extends State<LoginPage> {
                               'Entrar',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                     ),
@@ -222,12 +222,6 @@ class _LoginPageState extends State<LoginPage> {
                       decoration: BoxDecoration(
                         color: _iosCard,
                         borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 8,
-                          ),
-                        ],
                       ),
                       child: CupertinoButton(
                         borderRadius: BorderRadius.circular(12),
@@ -236,7 +230,7 @@ class _LoginPageState extends State<LoginPage> {
                           'Criar conta',
                           style: TextStyle(
                             color: _iosBlue,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
@@ -260,7 +254,7 @@ class _DividerOu extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Row(
       children: [
-        Expanded(child: Divider(color: Color(0xFFD1D1D6))),
+        Expanded(child: Divider(color: Color(0xFF2C2C2E))),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 12),
           child: Text(
@@ -268,11 +262,11 @@ class _DividerOu extends StatelessWidget {
             style: TextStyle(
               color: _iosGray,
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
-        Expanded(child: Divider(color: Color(0xFFD1D1D6))),
+        Expanded(child: Divider(color: Color(0xFF2C2C2E))),
       ],
     );
   }
@@ -302,9 +296,6 @@ class _AuthField extends StatelessWidget {
       decoration: BoxDecoration(
         color: _iosCard,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,7 +305,7 @@ class _AuthField extends StatelessWidget {
             style: const TextStyle(
               color: _iosGray,
               fontSize: 12,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w500,
             ),
           ),
           Row(
@@ -326,9 +317,9 @@ class _AuthField extends StatelessWidget {
                   keyboardType: keyboardType,
                   obscureText: obscureText,
                   style: const TextStyle(
-                    color: Colors.black,
+                    color: Colors.white,
                     fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                   ),
                   decoration: const InputDecoration(
                     border: InputBorder.none,

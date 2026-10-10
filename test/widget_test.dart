@@ -124,6 +124,46 @@ void main() {
     expect(corDoPercentual(0.49), iosRed);
   });
 
+  test(
+    'Habitex marks a day complete only when every scheduled habit is done',
+    () {
+      final store = HabitexStore(onChanged: () {});
+      final today = DateTime.now();
+      final todayId = dayId(today);
+      store.habits = [
+        Habit(
+          id: 'agua',
+          icon: '💧',
+          name: 'Água',
+          type: 'counter',
+          goal: 2000,
+          unit: 'ml',
+          step: 500,
+          frequency: [todayId],
+        ),
+        Habit(
+          id: 'leitura',
+          icon: '📖',
+          name: 'Leitura',
+          type: 'counter',
+          goal: 10,
+          unit: 'páginas',
+          step: 5,
+          frequency: [todayId],
+        ),
+      ];
+      store.habitProgress = {
+        dateKey(today): {'agua': 2000, 'leitura': 5},
+      };
+
+      expect(allHabitsCompletedForDate(store, today), isFalse);
+
+      store.habitProgress[dateKey(today)]!['leitura'] = 10;
+
+      expect(allHabitsCompletedForDate(store, today), isTrue);
+    },
+  );
+
   test('Habitex calculates habit statistics from progress', () {
     final store = HabitexStore(onChanged: () {});
     final today = DateTime.now();
@@ -381,18 +421,46 @@ void main() {
     expect(store.profile.email, 'jenny@habitex.app');
   });
 
-  testWidgets('Habitex renders the routine tab', (tester) async {
+  testWidgets('Habitex renders the profile dashboard first', (tester) async {
     SharedPreferences.setMockInitialValues(loggedInPrefs());
 
     await pumpHabitexApp(tester);
 
-    expect(find.text('Hoje'), findsOneWidget);
-    expect(find.text('Rotina'), findsOneWidget);
+    expect(find.text('HÁBITOS DA SEMANA'), findsOneWidget);
+    expect(find.text('Top hábito'), findsOneWidget);
+    expect(find.text('Lembretes de hoje'), findsOneWidget);
+    expect(find.text('Perfil'), findsOneWidget);
+    expect(find.text('Lembretes'), findsOneWidget);
     expect(find.text('Notas'), findsOneWidget);
     expect(find.text('Hábitos'), findsOneWidget);
   });
 
-  testWidgets('Habitex opens general data drawer from routine avatar', (
+  testWidgets('Habitex opens the full calendar over the profile dashboard', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(loggedInPrefs());
+
+    await pumpHabitexApp(tester);
+    await tester.tap(find.byKey(const ValueKey('open-month-calendar')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('habit-month-calendar-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text(monthTitle(DateTime.now())), findsOneWidget);
+    expect(find.text('Fechar'), findsOneWidget);
+
+    await tester.tap(find.text('Fechar'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('habit-month-calendar-dialog')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Habitex opens general data drawer from profile avatar', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(
@@ -407,15 +475,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Dados Gerais'), findsOneWidget);
-    expect(find.text('Perfil'), findsOneWidget);
-    expect(find.text('Modo Claro'), findsOneWidget);
+    expect(find.text('Perfil'), findsWidgets);
+    expect(find.text('Modo Claro'), findsNothing);
+    expect(find.text('Modo Escuro'), findsNothing);
     expect(find.text('Estatísticas'), findsOneWidget);
     expect(find.text('Notificações'), findsOneWidget);
     expect(find.text('Exportar Dados'), findsOneWidget);
     expect(find.text('Assinatura Premium'), findsOneWidget);
     expect(find.text('Sair'), findsOneWidget);
 
-    await tester.tap(find.text('Perfil'));
+    await tester.tap(find.widgetWithText(DadosGeraisTile, 'Perfil'));
     await tester.pumpAndSettle();
 
     expect(find.text('APELIDO'), findsOneWidget);
@@ -435,7 +504,7 @@ void main() {
     );
   });
 
-  testWidgets('Habitex shows habit creation and weekly calendar', (
+  testWidgets('Habitex shows minimal habit dashboard and creation', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(loggedInPrefs());
@@ -445,10 +514,11 @@ void main() {
     await tester.tap(find.byIcon(CupertinoIcons.sparkles));
     await tester.pumpAndSettle();
 
-    expect(find.text('Criar novo hábito'), findsOneWidget);
-    expect(find.text('Calendário semanal'), findsOneWidget);
+    expect(find.text('PROGRESSO DO DIA'), findsOneWidget);
+    expect(find.text('Seus hábitos'), findsOneWidget);
+    expect(find.text('Calendário semanal'), findsNothing);
 
-    await tester.tap(find.text('Criar novo hábito'));
+    await tester.tap(find.byKey(const ValueKey('add-habit-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Novo hábito'), findsOneWidget);
@@ -477,6 +547,25 @@ void main() {
       find.widgetWithText(FrequencyPresetButton, 'Fim de semana'),
     );
     expect(preset.selected, isTrue);
+  });
+
+  testWidgets('Habitex redesign fits an iPhone 13 viewport', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues(loggedInPrefs());
+
+    await pumpHabitexApp(tester);
+
+    expect(find.text('HÁBITOS DA SEMANA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byIcon(CupertinoIcons.sparkles));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PROGRESSO DO DIA'), findsOneWidget);
+    expect(find.byKey(const ValueKey('add-habit-button')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Habitex shows delete habit action after swipe', (tester) async {

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:habitex/services/auth_service.dart';
 
 const _iosBlue = Color(0xFF007AFF);
-const _iosBg = Color(0xFFF2F2F7);
-const _iosCard = Color(0xFFFFFFFF);
+const _iosBg = Color(0xFF000000);
+const _iosCard = Color(0xFF1C1C1E);
 const _iosGray = Color(0xFF8E8E93);
 
 class CadastroPage extends StatefulWidget {
@@ -123,9 +123,9 @@ class _CadastroPageState extends State<CadastroPage> {
               const Text(
                 'Criar conta',
                 style: TextStyle(
-                  color: Colors.black,
+                  color: Colors.white,
                   fontSize: 28,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 8),
@@ -134,7 +134,7 @@ class _CadastroPageState extends State<CadastroPage> {
                 style: TextStyle(
                   color: _iosGray,
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 32),
@@ -180,7 +180,7 @@ class _CadastroPageState extends State<CadastroPage> {
                 style: TextStyle(
                   color: _iosGray,
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 24),
@@ -194,7 +194,7 @@ class _CadastroPageState extends State<CadastroPage> {
                         'Criar conta',
                         style: TextStyle(
                           color: Colors.white,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
               ),
@@ -230,9 +230,6 @@ class _CadastroField extends StatelessWidget {
       decoration: BoxDecoration(
         color: _iosCard,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -242,7 +239,7 @@ class _CadastroField extends StatelessWidget {
             style: const TextStyle(
               color: _iosGray,
               fontSize: 12,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w500,
             ),
           ),
           Row(
@@ -254,9 +251,9 @@ class _CadastroField extends StatelessWidget {
                   keyboardType: keyboardType,
                   obscureText: obscureText,
                   style: const TextStyle(
-                    color: Colors.black,
+                    color: Colors.white,
                     fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                   ),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
