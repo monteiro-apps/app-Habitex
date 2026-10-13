@@ -2,11 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:habitex/pages/cadastro_page.dart';
 import 'package:habitex/services/auth_service.dart';
-
-const _iosBlue = Color(0xFF007AFF);
-const _iosBg = Color(0xFF000000);
-const _iosCard = Color(0xFF1C1C1E);
-const _iosGray = Color(0xFF8E8E93);
+import 'package:habitex/theme/habitex_design.dart';
+import 'package:habitex/widgets/habitex_auth_field.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, required this.nextPage, this.onAuthenticated});
@@ -130,7 +127,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _iosBg,
+      backgroundColor: HabitexColors.background,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -147,7 +144,7 @@ class _LoginPageState extends State<LoginPage> {
                       'HABITEX',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: _iosBlue,
+                        color: HabitexColors.primary,
                         fontSize: 32,
                         fontWeight: FontWeight.w500,
                       ),
@@ -157,25 +154,25 @@ class _LoginPageState extends State<LoginPage> {
                       'O app que te ajuda a não esquecer de você.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: _iosGray,
+                        color: HabitexColors.textSecondary,
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 40),
-                    _AuthField(
+                    HabitexAuthField(
                       label: 'E-MAIL',
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       enabled: !_carregando,
                     ),
                     const SizedBox(height: 12),
-                    _AuthField(
+                    HabitexAuthField(
                       label: 'SENHA',
                       controller: _senhaController,
                       obscureText: !_senhaVisivel,
                       enabled: !_carregando,
-                      suffixIcon: _PasswordVisibilityButton(
+                      suffixIcon: HabitexPasswordVisibilityButton(
                         visible: _senhaVisivel,
                         onTap: () =>
                             setState(() => _senhaVisivel = !_senhaVisivel),
@@ -191,7 +188,7 @@ class _LoginPageState extends State<LoginPage> {
                         child: const Text(
                           'Esqueci minha senha',
                           style: TextStyle(
-                            color: _iosBlue,
+                            color: HabitexColors.primary,
                             fontSize: 13,
                             fontWeight: FontWeight.w400,
                           ),
@@ -200,7 +197,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 24),
                     CupertinoButton(
-                      color: _iosBlue,
+                      color: HabitexColors.primary,
                       borderRadius: BorderRadius.circular(12),
                       onPressed: _carregando ? null : _login,
                       child: _carregando
@@ -220,16 +217,20 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 16),
                     Container(
                       decoration: BoxDecoration(
-                        color: _iosCard,
-                        borderRadius: BorderRadius.circular(12),
+                        color: HabitexColors.surface,
+                        borderRadius: BorderRadius.circular(
+                          HabitexRadii.compact,
+                        ),
                       ),
                       child: CupertinoButton(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(
+                          HabitexRadii.compact,
+                        ),
                         onPressed: _carregando ? null : _abrirCadastro,
                         child: const Text(
                           'Criar conta',
                           style: TextStyle(
-                            color: _iosBlue,
+                            color: HabitexColors.primary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -254,110 +255,20 @@ class _DividerOu extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Row(
       children: [
-        Expanded(child: Divider(color: Color(0xFF2C2C2E))),
+        Expanded(child: Divider(color: HabitexColors.surfaceElevated)),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             'ou',
             style: TextStyle(
-              color: _iosGray,
+              color: HabitexColors.textSecondary,
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
           ),
         ),
-        Expanded(child: Divider(color: Color(0xFF2C2C2E))),
+        Expanded(child: Divider(color: HabitexColors.surfaceElevated)),
       ],
-    );
-  }
-}
-
-class _AuthField extends StatelessWidget {
-  const _AuthField({
-    required this.label,
-    required this.controller,
-    this.keyboardType,
-    this.obscureText = false,
-    this.enabled = true,
-    this.suffixIcon,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final TextInputType? keyboardType;
-  final bool obscureText;
-  final bool enabled;
-  final Widget? suffixIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _iosCard,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: _iosGray,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  enabled: enabled,
-                  keyboardType: keyboardType,
-                  obscureText: obscureText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                  ),
-                ),
-              ),
-              if (suffixIcon != null) ...[
-                const SizedBox(width: 8),
-                suffixIcon!,
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PasswordVisibilityButton extends StatelessWidget {
-  const _PasswordVisibilityButton({required this.visible, required this.onTap});
-
-  final bool visible;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Icon(
-          visible ? CupertinoIcons.eye_slash : CupertinoIcons.eye,
-          color: _iosGray,
-          size: 20,
-        ),
-      ),
     );
   }
 }

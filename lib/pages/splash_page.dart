@@ -2,10 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:habitex/pages/login_page.dart';
 import 'package:habitex/services/auth_service.dart';
-
-const _iosBlue = Color(0xFF007AFF);
-const _iosBg = Color(0xFF000000);
-const _iosGray = Color(0xFF8E8E93);
+import 'package:habitex/theme/habitex_design.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key, required this.app, this.onAuthenticated});
@@ -49,7 +46,7 @@ class _SplashPageState extends State<SplashPage> {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: _iosBg,
+      backgroundColor: HabitexColors.background,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -57,7 +54,7 @@ class _SplashPageState extends State<SplashPage> {
             Text(
               'HABITEX',
               style: TextStyle(
-                color: _iosBlue,
+                color: HabitexColors.primary,
                 fontSize: 36,
                 fontWeight: FontWeight.w500,
               ),
@@ -66,7 +63,7 @@ class _SplashPageState extends State<SplashPage> {
             Text(
               'sua rotina, seus hábitos',
               style: TextStyle(
-                color: _iosGray,
+                color: HabitexColors.textSecondary,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),

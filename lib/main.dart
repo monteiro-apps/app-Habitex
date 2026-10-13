@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:app_settings/app_settings.dart';
 import 'package:csv/csv.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
@@ -18,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:uuid/uuid.dart';
+import 'package:habitex/theme/habitex_design.dart';
 
 final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -40,15 +42,15 @@ void initializeHabitexTimeZone() {
 
 String get habitexTimeZoneName => tz.local.name;
 
-const iosBg = Color(0xFFF2F2F7);
-const iosCard = Color(0xFFFFFFFF);
-const iosBlue = Color(0xFF007AFF);
-const iosGray = Color(0xFF8E8E93);
-const iosGreen = Color(0xFF34C759);
-const iosOrange = Color(0xFFFF9500);
-const iosRedLight = Color(0xFFFFD9D7);
-const iosRed = Color(0xFFFF6B63);
-const calendarFree = Color(0xFFF0F0F3);
+const iosBg = HabitexColors.background;
+const iosCard = HabitexColors.surface;
+const iosBlue = HabitexColors.primary;
+const iosGray = HabitexColors.textSecondary;
+const iosGreen = HabitexColors.success;
+const iosOrange = HabitexColors.warning;
+const iosRedLight = HabitexColors.errorSoft;
+const iosRed = HabitexColors.error;
+const calendarFree = HabitexColors.surfaceElevated;
 const habitsSchemaVersion = 2;
 
 enum AppTab { perfil, lembretes, habitos, notas }
@@ -93,30 +95,7 @@ class _HabitexAppState extends State<HabitexApp> {
       debugShowCheckedModeBanner: false,
       title: 'Habitex',
       themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        fontFamily: '.SF Pro Text',
-        scaffoldBackgroundColor: const Color(0xFF000000),
-        colorScheme: const ColorScheme(
-          brightness: Brightness.dark,
-          primary: Color(0xFF007AFF),
-          onPrimary: Colors.white,
-          secondary: Color(0xFF34C759),
-          onSecondary: Colors.white,
-          error: Color(0xFFFF6B63),
-          onError: Colors.white,
-          surface: Color(0xFF1C1C1E),
-          onSurface: Color(0xFFFFFFFF),
-          surfaceContainerHighest: Color(0xFF2C2C2E),
-          onSurfaceVariant: Color(0xFF8E8E93),
-        ),
-        textTheme: Typography.whiteCupertino.apply(
-          fontFamily: '.SF Pro Text',
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
-        ),
-      ),
+      darkTheme: habitexDarkTheme(),
       home: SplashPage(
         app: HabitexHome(store: store, loaded: loaded),
         onAuthenticated: _syncAuthenticatedUser,
@@ -196,6 +175,7 @@ class HabitexStore {
   final Set<VoidCallback> _listeners = {};
   SharedPreferences? _prefs;
   Map<String, List<RoutineTask>> tasksByDay = {};
+  Map<String, Set<String>> taskCompletions = {};
   List<QuickNote> notes = [];
   List<Habit> habits = defaultHabits();
   Map<String, Map<String, int>> habitProgress = {};
@@ -221,6 +201,10 @@ class HabitexStore {
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     tasksByDay = _decodeTasks(_prefs?.getString('habitex.tasksByDay'));
+    taskCompletions = _decodeTaskCompletions(
+      _prefs?.getString('habitex.taskCompletions'),
+    );
+    await _migrateLegacyTaskCompletions();
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromPrefs(_prefs);
     themeMode = ThemeMode.dark;
@@ -301,6 +285,30 @@ class HabitexStore {
     await _prefs?.setString(key, jsonEncode(value));
   }
 
+  Future<void> _migrateLegacyTaskCompletions() async {
+    final today = DateTime.now();
+    final todayId = dayId(today);
+    final legacyCompleted = (tasksByDay[todayId] ?? [])
+        .where((task) => task.done)
+        .map((task) => task.id)
+        .toSet();
+    if (legacyCompleted.isEmpty) return;
+
+    final key = dateKey(today);
+    taskCompletions = {
+      ...taskCompletions,
+      key: {...taskCompletions[key] ?? {}, ...legacyCompleted},
+    };
+    tasksByDay[todayId] = (tasksByDay[todayId] ?? [])
+        .map((task) => task.done ? task.copyWith(done: false) : task)
+        .toList();
+    await _saveTasks();
+    await _save(
+      'habitex.taskCompletions',
+      taskCompletions.map((date, ids) => MapEntry(date, ids.toList())),
+    );
+  }
+
   Future<void> _saveHabits() async {
     await _save(
       'habitex.habits',
@@ -342,11 +350,74 @@ class HabitexStore {
     );
   }
 
-  Future<void> deleteTask(String day, String id) async {
-    tasksByDay[day] = (tasksByDay[day] ?? [])
-        .where((task) => task.id != id)
-        .toList();
+  List<RoutineTask> tasksForDate(DateTime date) {
+    final unique = <String, RoutineTask>{};
+    for (final task in tasksByDay[dayId(date)] ?? <RoutineTask>[]) {
+      if (task.occursOn(date)) unique[task.id] = task;
+    }
+    final tasks = unique.values.toList();
+    tasks.sort((left, right) {
+      final leftTime = left.taskTime ?? '99:99';
+      final rightTime = right.taskTime ?? '99:99';
+      final byTime = leftTime.compareTo(rightTime);
+      return byTime != 0 ? byTime : left.text.compareTo(right.text);
+    });
+    return tasks;
+  }
+
+  bool isTaskDoneOnDate(RoutineTask task, DateTime date) {
+    final completed = taskCompletions[dateKey(date)]?.contains(task.id) == true;
+    if (completed) return true;
+    return task.done && isSameDate(date, DateTime.now());
+  }
+
+  Future<void> toggleTaskForDate(RoutineTask task, DateTime date) async {
+    final key = dateKey(date);
+    final completed = Set<String>.of(taskCompletions[key] ?? {});
+    if (completed.contains(task.id)) {
+      completed.remove(task.id);
+    } else {
+      completed.add(task.id);
+    }
+    taskCompletions = {...taskCompletions, key: completed};
     _notifyChanged();
+    await _save(
+      'habitex.taskCompletions',
+      taskCompletions.map((key, value) => MapEntry(key, value.toList())),
+    );
+  }
+
+  Future<void> editTask(String day, RoutineTask updatedTask) async {
+    await saveReminder(updatedTask);
+  }
+
+  Future<void> saveReminder(RoutineTask reminder) async {
+    for (final day in weekDays.map((item) => item.id)) {
+      tasksByDay[day] = (tasksByDay[day] ?? [])
+          .where((task) => task.id != reminder.id)
+          .toList();
+    }
+    final days = reminder.recurring
+        ? reminder.recurrenceDays
+        : [dayId(reminder.startDate ?? DateTime.now())];
+    for (final day in days) {
+      tasksByDay[day] = [...tasksByDay[day] ?? [], reminder];
+    }
+    _notifyChanged();
+    await _saveTasks();
+  }
+
+  Future<void> deleteTask(String day, String id) async {
+    for (final weekday in weekDays.map((item) => item.id)) {
+      tasksByDay[weekday] = (tasksByDay[weekday] ?? [])
+          .where((task) => task.id != id)
+          .toList();
+    }
+    _notifyChanged();
+    await _saveTasks();
+  }
+
+  Future<void> _saveTasks() async {
     await _save(
       'habitex.tasksByDay',
       tasksByDay.map(
@@ -361,6 +432,12 @@ class HabitexStore {
     notes = exists
         ? notes.map((item) => item.id == note.id ? note : item).toList()
         : [note, ...notes];
+    _notifyChanged();
+    await _save('habitex.notes', notes.map((note) => note.toJson()).toList());
+  }
+
+  Future<void> deleteNote(String id) async {
+    notes = notes.where((note) => note.id != id).toList();
     _notifyChanged();
     await _save('habitex.notes', notes.map((note) => note.toJson()).toList());
   }
@@ -577,22 +654,105 @@ class UserProfile {
 }
 
 class RoutineTask {
-  const RoutineTask({required this.id, required this.text, this.done = false});
+  const RoutineTask({
+    required this.id,
+    required this.text,
+    this.done = false,
+    this.description = '',
+    this.startDate,
+    this.recurring = true,
+    this.recurrenceDays = const [],
+    this.taskTime,
+    this.notificationEnabled = false,
+    this.notificationTime,
+    this.createdAt,
+    this.updatedAt,
+  });
 
   final String id;
   final String text;
   final bool done;
+  final String description;
+  final DateTime? startDate;
+  final bool recurring;
+  final List<String> recurrenceDays;
+  final String? taskTime;
+  final bool notificationEnabled;
+  final String? notificationTime;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
-  RoutineTask copyWith({bool? done}) =>
-      RoutineTask(id: id, text: text, done: done ?? this.done);
+  RoutineTask copyWith({
+    String? text,
+    bool? done,
+    String? description,
+    DateTime? startDate,
+    bool? recurring,
+    List<String>? recurrenceDays,
+    String? taskTime,
+    bool clearTaskTime = false,
+    bool? notificationEnabled,
+    String? notificationTime,
+    bool clearNotificationTime = false,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => RoutineTask(
+    id: id,
+    text: text ?? this.text,
+    done: done ?? this.done,
+    description: description ?? this.description,
+    startDate: startDate ?? this.startDate,
+    recurring: recurring ?? this.recurring,
+    recurrenceDays: recurrenceDays ?? this.recurrenceDays,
+    taskTime: clearTaskTime ? null : taskTime ?? this.taskTime,
+    notificationEnabled: notificationEnabled ?? this.notificationEnabled,
+    notificationTime: clearNotificationTime
+        ? null
+        : notificationTime ?? this.notificationTime,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 
-  Map<String, dynamic> toJson() => {'id': id, 'text': text, 'done': done};
+  bool occursOn(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    if (startDate == null) return true;
+    final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
+    if (normalized.isBefore(start)) return false;
+    if (!recurring) return isSameDate(normalized, start);
+    return recurrenceDays.contains(dayId(normalized));
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'text': text,
+    'done': done,
+    'description': description,
+    'startDate': startDate?.toIso8601String(),
+    'recurring': recurring,
+    'recurrenceDays': recurrenceDays,
+    'taskTime': taskTime,
+    'notificationEnabled': notificationEnabled,
+    'notificationTime': notificationTime,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
 
   factory RoutineTask.fromJson(Map<String, dynamic> json) {
     return RoutineTask(
       id: json['id'] as String,
       text: json['text'] as String,
       done: json['done'] == true,
+      description: json['description'] as String? ?? '',
+      startDate: DateTime.tryParse(json['startDate'] as String? ?? ''),
+      recurring: json['recurring'] as bool? ?? true,
+      recurrenceDays: (json['recurrenceDays'] as List<dynamic>? ?? [])
+          .map((day) => day as String)
+          .toList(),
+      taskTime: json['taskTime'] as String?,
+      notificationEnabled: json['notificationEnabled'] == true,
+      notificationTime: json['notificationTime'] as String?,
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
     );
   }
 }
@@ -666,7 +826,7 @@ class Habit {
   factory Habit.fromJson(Map<String, dynamic> json) {
     return Habit(
       id: json['id'] as String,
-      icon: json['icon'] as String? ?? '✨',
+      icon: json['icon'] as String? ?? '',
       name: json['name'] as String,
       type: json['type'] as String? ?? 'counter',
       goal: (json['goal'] as num?)?.toInt() ?? 1,
@@ -717,7 +877,7 @@ class PerfilDashboardPage extends StatelessWidget {
     final progress = scheduled == 0 ? 0.0 : completed / scheduled;
     final rates = habitCompletionRates(store);
     final topHabit = rates.isEmpty ? null : rates.first;
-    final todayTasks = store.tasksByDay[dayId(now)] ?? [];
+    final todayTasks = store.tasksForDate(now);
     final name = store.profile.nickname.trim().isEmpty
         ? 'Você'
         : store.profile.nickname.trim();
@@ -912,7 +1072,8 @@ class PerfilDashboardPage extends StatelessWidget {
                     for (final task in todayTasks.take(4))
                       DashboardReminderRow(
                         task: task,
-                        onTap: () => store.toggleTask(dayId(now), task.id),
+                        done: store.isTaskDoneOnDate(task, now),
+                        onTap: () => store.toggleTaskForDate(task, now),
                       ),
                   ],
                 ),
@@ -1003,10 +1164,10 @@ class DashboardDay extends StatelessWidget {
           height: 32,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: completed
-                ? iosGreen.withValues(alpha: 0.14)
-                : selected
+            color: selected
                 ? iosBlue
+                : completed
+                ? iosGreen.withValues(alpha: 0.10)
                 : Colors.transparent,
             shape: BoxShape.circle,
             border: completed
@@ -1020,7 +1181,11 @@ class DashboardDay extends StatelessWidget {
             '${date.day}',
             style: TextStyle(
               fontSize: 13,
-              color: completed ? iosGreen : Colors.white,
+              color: selected
+                  ? Colors.white
+                  : completed
+                  ? iosGreen
+                  : Theme.of(context).colorScheme.onSurface,
               fontWeight: FontWeight.w400,
             ),
           ),
@@ -1070,6 +1235,23 @@ class _HabitMonthCalendarDialogState extends State<HabitMonthCalendarDialog> {
     DateTime.now().year,
     DateTime.now().month,
   );
+  DateTime? selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_refresh);
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
 
   void changeMonth(int offset) {
     setState(() {
@@ -1087,105 +1269,134 @@ class _HabitMonthCalendarDialogState extends State<HabitMonthCalendarDialog> {
     ).day;
     final totalCells = ((firstWeekdayOffset + daysInMonth + 6) ~/ 7) * 7;
 
+    final selectedTasks = selectedDate == null
+        ? const <RoutineTask>[]
+        : widget.store.tasksForDate(selectedDate!);
+
     return Dialog(
       key: const ValueKey('habit-month-calendar-dialog'),
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 32),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(
+          maxWidth: 460,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+        ),
         child: IosCard(
           borderRadius: 20,
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  CupertinoButton(
-                    minimumSize: const Size(40, 40),
-                    padding: EdgeInsets.zero,
-                    onPressed: () => changeMonth(-1),
-                    child: const Icon(
-                      CupertinoIcons.chevron_left,
-                      color: iosGray,
-                      size: 18,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      monthTitle(visibleMonth),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w500,
+          padding: EdgeInsets.zero,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    CupertinoButton(
+                      minimumSize: const Size(40, 40),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => changeMonth(-1),
+                      child: const Icon(
+                        CupertinoIcons.chevron_left,
+                        color: iosGray,
+                        size: 18,
                       ),
                     ),
-                  ),
-                  CupertinoButton(
-                    minimumSize: const Size(40, 40),
-                    padding: EdgeInsets.zero,
-                    onPressed: () => changeMonth(1),
-                    child: const Icon(
-                      CupertinoIcons.chevron_right,
-                      color: iosGray,
-                      size: 18,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  for (final label in ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'])
                     Expanded(
                       child: Text(
-                        label,
+                        monthTitle(visibleMonth),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: iosGray,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w400,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  mainAxisExtent: 42,
+                    CupertinoButton(
+                      minimumSize: const Size(40, 40),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => changeMonth(1),
+                      child: const Icon(
+                        CupertinoIcons.chevron_right,
+                        color: iosGray,
+                        size: 18,
+                      ),
+                    ),
+                  ],
                 ),
-                itemCount: totalCells,
-                itemBuilder: (context, index) {
-                  final day = index - firstWeekdayOffset + 1;
-                  if (day < 1 || day > daysInMonth) {
-                    return const SizedBox.shrink();
-                  }
-                  final date = DateTime(
-                    visibleMonth.year,
-                    visibleMonth.month,
-                    day,
-                  );
-                  return MonthCalendarDay(
-                    date: date,
-                    selected: isSameDate(date, DateTime.now()),
-                    completed: allHabitsCompletedForDate(widget.store, date),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Fechar',
-                  style: TextStyle(color: iosBlue, fontWeight: FontWeight.w500),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    for (final label in ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'])
+                      Expanded(
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: iosGray,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    mainAxisExtent: 42,
+                  ),
+                  itemCount: totalCells,
+                  itemBuilder: (context, index) {
+                    final day = index - firstWeekdayOffset + 1;
+                    if (day < 1 || day > daysInMonth) {
+                      return const SizedBox.shrink();
+                    }
+                    final date = DateTime(
+                      visibleMonth.year,
+                      visibleMonth.month,
+                      day,
+                    );
+                    return MonthCalendarDay(
+                      date: date,
+                      isToday: isSameDate(date, DateTime.now()),
+                      selected:
+                          selectedDate != null &&
+                          isSameDate(date, selectedDate!),
+                      completed: allHabitsCompletedForDate(widget.store, date),
+                      hasReminder: widget.store.tasksForDate(date).isNotEmpty,
+                      onTap: () => setState(() => selectedDate = date),
+                    );
+                  },
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  child: selectedDate == null
+                      ? const SizedBox(height: 8)
+                      : ReminderCalendarDayList(
+                          date: selectedDate!,
+                          tasks: selectedTasks,
+                          store: widget.store,
+                        ),
+                ),
+                const SizedBox(height: 6),
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Fechar',
+                    style: TextStyle(
+                      color: iosBlue,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1197,45 +1408,117 @@ class MonthCalendarDay extends StatelessWidget {
   const MonthCalendarDay({
     super.key,
     required this.date,
+    required this.isToday,
     required this.selected,
     required this.completed,
+    required this.hasReminder,
+    required this.onTap,
   });
 
   final DateTime date;
+  final bool isToday;
   final bool selected;
   final bool completed;
+  final bool hasReminder;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: completed
-              ? iosGreen.withValues(alpha: 0.14)
-              : selected
-              ? iosBlue
-              : Colors.transparent,
-          shape: BoxShape.circle,
-          border: completed
-              ? Border.all(color: iosGreen.withValues(alpha: 0.75), width: 1.2)
-              : null,
-        ),
-        child: Text(
-          '${date.day}',
-          style: TextStyle(
-            color: completed
-                ? iosGreen
-                : selected
-                ? Colors.white
-                : Theme.of(context).colorScheme.onSurface,
-            fontSize: 13,
-            fontWeight: FontWeight.w400,
+    return CupertinoButton(
+      minimumSize: const Size(38, 42),
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isToday
+                  ? iosBlue
+                  : selected
+                  ? iosBlue.withValues(alpha: 0.18)
+                  : completed
+                  ? iosGreen.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              shape: BoxShape.circle,
+              border: completed
+                  ? Border.all(color: iosGreen, width: 1.4)
+                  : selected && !isToday
+                  ? Border.all(color: iosBlue.withValues(alpha: 0.7), width: 1)
+                  : null,
+            ),
+            child: Text(
+              '${date.day}',
+              style: TextStyle(
+                color: isToday
+                    ? Colors.white
+                    : completed
+                    ? iosGreen
+                    : Theme.of(context).colorScheme.onSurface,
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
           ),
-        ),
+          SizedBox(
+            height: 4,
+            child: hasReminder
+                ? Container(
+                    key: ValueKey('reminder-dot-${dateKey(date)}'),
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFAF8CFF),
+                      shape: BoxShape.circle,
+                    ),
+                  )
+                : null,
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class ReminderCalendarDayList extends StatelessWidget {
+  const ReminderCalendarDayList({
+    super.key,
+    required this.date,
+    required this.tasks,
+    required this.store,
+  });
+
+  final DateTime date;
+  final List<RoutineTask> tasks;
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 22),
+        Text(
+          formatFullDate(date),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 10),
+        if (tasks.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: DashboardEmptyText(text: 'Nenhum lembrete para este dia'),
+          )
+        else
+          for (final task in tasks)
+            DashboardReminderRow(
+              task: task,
+              done: store.isTaskDoneOnDate(task, date),
+              onTap: () => store.toggleTaskForDate(task, date),
+            ),
+      ],
     );
   }
 }
@@ -1258,14 +1541,29 @@ String monthTitle(DateTime date) {
   return '${months[date.month - 1]} ${date.year}';
 }
 
+String formatFullDate(DateTime date) {
+  const weekdays = [
+    'segunda-feira',
+    'terça-feira',
+    'quarta-feira',
+    'quinta-feira',
+    'sexta-feira',
+    'sábado',
+    'domingo',
+  ];
+  return '${weekdays[date.weekday - 1]}, ${date.day} de ${monthTitle(date).split(' ').first.toLowerCase()}';
+}
+
 class DashboardReminderRow extends StatelessWidget {
   const DashboardReminderRow({
     super.key,
     required this.task,
+    required this.done,
     required this.onTap,
   });
 
   final RoutineTask task;
+  final bool done;
   final VoidCallback onTap;
 
   @override
@@ -1276,10 +1574,10 @@ class DashboardReminderRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            task.done
+            done
                 ? CupertinoIcons.check_mark_circled_solid
                 : CupertinoIcons.circle,
-            color: task.done
+            color: done
                 ? iosGreen
                 : Theme.of(context).colorScheme.onSurfaceVariant,
             size: 21,
@@ -1291,7 +1589,7 @@ class DashboardReminderRow extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: task.done
+                color: done
                     ? Theme.of(context).colorScheme.onSurfaceVariant
                     : Theme.of(context).colorScheme.onSurface,
                 fontSize: 14,
@@ -1348,19 +1646,26 @@ String formatDashboardDate(DateTime date) {
 }
 
 class RotinaPage extends StatefulWidget {
-  const RotinaPage({super.key, required this.store});
+  const RotinaPage({super.key, required this.store, this.showHeader = true});
 
   final HabitexStore store;
+  final bool showHeader;
 
   @override
   State<RotinaPage> createState() => _RotinaPageState();
 }
 
 class _RotinaPageState extends State<RotinaPage> {
-  late String selectedDay = dayId(DateTime.now());
-  late List<String> targetDays = [selectedDay];
+  late DateTime selectedDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+  late List<String> targetDays = [dayId(selectedDate)];
   final taskController = TextEditingController();
   bool showOptions = false;
+
+  String get selectedDay => dayId(selectedDate);
 
   WeekDay get selectedWeekDay =>
       weekDays.firstWhere((day) => day.id == selectedDay);
@@ -1391,39 +1696,123 @@ class _RotinaPageState extends State<RotinaPage> {
     setState(() => showOptions = false);
   }
 
+  Future<void> openReminderForm([RoutineTask? task]) async {
+    final updated = await showModalBottomSheet<RoutineTask>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          ReminderFormBottomSheet(reminder: task, initialDate: selectedDate),
+    );
+    if (updated != null) {
+      await widget.store.saveReminder(updated);
+      await syncReminderNotification(updated);
+    }
+  }
+
+  Future<void> confirmDelete(RoutineTask task) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('Excluir lembrete?'),
+        content: Text('O lembrete "${task.text}" será excluído.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await cancelReminderNotifications(task);
+      await widget.store.deleteTask(selectedDay, task.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tasks = widget.store.tasksByDay[selectedDay] ?? [];
+    final tasks = widget.store.tasksForDate(selectedDate);
+    final week = currentWeekDates(selectedDate);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 112),
       children: [
-        HabitexHeader(
-          title: 'Lembretes',
-          subtitle:
-              '${tasks.length} atividades para ${selectedWeekDay.full.toLowerCase()}',
-        ),
-        const SizedBox(height: 18),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final day in weekDays)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: DayChip(
-                    label: day.short,
-                    selected: selectedDay == day.id,
-                    onTap: () => setState(() {
-                      selectedDay = day.id;
-                      targetDays = [day.id];
-                    }),
-                  ),
-                ),
-            ],
+        if (widget.showHeader) ...[
+          HabitexHeader(
+            title: 'Lembretes',
+            subtitle:
+                '${tasks.length} atividades em ${formatFullDate(selectedDate)}',
+            trailing: ProfileAvatarButton(
+              profile: widget.store.profile,
+              size: 38,
+            ),
           ),
+          const SizedBox(height: 18),
+        ],
+        Row(
+          children: [
+            CupertinoButton(
+              minimumSize: const Size(32, 40),
+              padding: EdgeInsets.zero,
+              onPressed: () => setState(() {
+                selectedDate = selectedDate.subtract(const Duration(days: 7));
+                targetDays = [selectedDay];
+              }),
+              child: const Icon(CupertinoIcons.chevron_left, size: 17),
+            ),
+            for (final date in week)
+              Expanded(
+                child: ReminderWeekDayButton(
+                  date: date,
+                  selected: isSameDate(date, selectedDate),
+                  onTap: () => setState(() {
+                    selectedDate = date;
+                    targetDays = [dayId(date)];
+                  }),
+                ),
+              ),
+            CupertinoButton(
+              minimumSize: const Size(32, 40),
+              padding: EdgeInsets.zero,
+              onPressed: () => setState(() {
+                selectedDate = selectedDate.add(const Duration(days: 7));
+                targetDays = [selectedDay];
+              }),
+              child: const Icon(CupertinoIcons.chevron_right, size: 17),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: CupertinoButton(
+            key: const ValueKey('new-reminder-button'),
+            color: iosBlue,
+            borderRadius: BorderRadius.circular(12),
+            onPressed: openReminderForm,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(CupertinoIcons.add, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Novo lembrete',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         IosCard(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -1564,17 +1953,488 @@ class _RotinaPageState extends State<RotinaPage> {
               : Column(
                   children: [
                     for (final task in tasks)
-                      TaskRow(
-                        task: task,
-                        onToggle: () =>
-                            widget.store.toggleTask(selectedDay, task.id),
-                        onDelete: () =>
-                            widget.store.deleteTask(selectedDay, task.id),
+                      Dismissible(
+                        key: ValueKey('${task.id}-${dateKey(selectedDate)}'),
+                        direction: DismissDirection.endToStart,
+                        confirmDismiss: (_) async {
+                          await openReminderForm(task);
+                          return false;
+                        },
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 18),
+                          color: iosBlue.withValues(alpha: 0.14),
+                          child: const Icon(
+                            CupertinoIcons.pencil,
+                            color: iosBlue,
+                            size: 20,
+                          ),
+                        ),
+                        child: TaskRow(
+                          task: task,
+                          done: widget.store.isTaskDoneOnDate(
+                            task,
+                            selectedDate,
+                          ),
+                          onToggle: () => widget.store.toggleTaskForDate(
+                            task,
+                            selectedDate,
+                          ),
+                          onDelete: () => confirmDelete(task),
+                        ),
                       ),
                   ],
                 ),
         ),
       ],
+    );
+  }
+}
+
+class ReminderWeekDayButton extends StatelessWidget {
+  const ReminderWeekDayButton({
+    super.key,
+    required this.date,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final DateTime date;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+    return CupertinoButton(
+      minimumSize: const Size(36, 58),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      onPressed: onTap,
+      child: Column(
+        children: [
+          Text(
+            labels[date.weekday - 1],
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 10,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Container(
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? iosBlue : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '${date.day}',
+              style: TextStyle(
+                color: selected
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurface,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ReminderFormBottomSheet extends StatefulWidget {
+  const ReminderFormBottomSheet({
+    super.key,
+    required this.initialDate,
+    this.reminder,
+  });
+
+  final DateTime initialDate;
+  final RoutineTask? reminder;
+
+  @override
+  State<ReminderFormBottomSheet> createState() =>
+      _ReminderFormBottomSheetState();
+}
+
+class _ReminderFormBottomSheetState extends State<ReminderFormBottomSheet> {
+  late final TextEditingController titleController = TextEditingController(
+    text: widget.reminder?.text ?? '',
+  );
+  late final TextEditingController descriptionController =
+      TextEditingController(text: widget.reminder?.description ?? '');
+  late DateTime selectedDate = widget.reminder?.startDate ?? widget.initialDate;
+  late bool recurring = widget.reminder?.recurring ?? false;
+  late List<String> recurrenceDays = widget.reminder == null
+      ? [dayId(widget.initialDate)]
+      : widget.reminder!.recurrenceDays.isEmpty
+      ? [dayId(selectedDate)]
+      : List<String>.of(widget.reminder!.recurrenceDays);
+  late String? taskTime = widget.reminder?.taskTime;
+  late bool notificationEnabled = widget.reminder?.notificationEnabled ?? false;
+  late String? notificationTime = widget.reminder?.notificationTime;
+  String? error;
+
+  bool get isEditing => widget.reminder != null;
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) setState(() => selectedDate = picked);
+  }
+
+  Future<void> pickTaskTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: taskTime == null
+          ? TimeOfDay.now()
+          : timeOfDayFromString(taskTime!),
+    );
+    if (picked != null) setState(() => taskTime = timeOfDayToString(picked));
+  }
+
+  Future<void> pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: notificationTime == null
+          ? TimeOfDay.now()
+          : timeOfDayFromString(notificationTime!),
+    );
+    if (picked != null) {
+      setState(() => notificationTime = timeOfDayToString(picked));
+    }
+  }
+
+  void save() {
+    final title = titleController.text.trim();
+    if (title.isEmpty) {
+      setState(() => error = 'Informe a tarefa.');
+      return;
+    }
+    if (recurring && recurrenceDays.isEmpty) {
+      setState(() => error = 'Selecione pelo menos um dia.');
+      return;
+    }
+    if (notificationEnabled && notificationTime == null) {
+      setState(() => error = 'Escolha o horário da notificação.');
+      return;
+    }
+
+    final now = DateTime.now();
+    Navigator.pop(
+      context,
+      RoutineTask(
+        id: widget.reminder?.id ?? const Uuid().v4(),
+        text: title,
+        description: descriptionController.text.trim(),
+        startDate: DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+        ),
+        recurring: recurring,
+        recurrenceDays: recurring ? List<String>.of(recurrenceDays) : const [],
+        taskTime: taskTime,
+        notificationEnabled: notificationEnabled,
+        notificationTime: notificationEnabled ? notificationTime : null,
+        createdAt: widget.reminder?.createdAt ?? now,
+        updatedAt: now,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            14,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 24,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                isEditing ? 'Editar lembrete' : 'Novo lembrete',
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ReminderFormField(
+                key: const ValueKey('reminder-title-field'),
+                label: 'TAREFA',
+                controller: titleController,
+                hint: 'Ex: Academia',
+              ),
+              const SizedBox(height: 14),
+              ReminderFormField(
+                label: 'DESCRIÇÃO',
+                controller: descriptionController,
+                hint: 'Detalhes opcionais',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 18),
+              ReminderFormOption(
+                label: 'Data',
+                value: dateKey(selectedDate).split('-').reversed.join('/'),
+                icon: CupertinoIcons.calendar,
+                onTap: pickDate,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'REPETIÇÃO',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<bool>(
+                  groupValue: recurring,
+                  children: const {
+                    false: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: Text('Única'),
+                    ),
+                    true: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      child: Text('Repetir'),
+                    ),
+                  },
+                  onValueChanged: (value) {
+                    if (value != null) setState(() => recurring = value);
+                  },
+                ),
+              ),
+              if (recurring) ...[
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    for (final day in weekDays)
+                      DayChip(
+                        label: day.short,
+                        selected: recurrenceDays.contains(day.id),
+                        compact: true,
+                        onTap: () => setState(() {
+                          recurrenceDays.contains(day.id)
+                              ? recurrenceDays.remove(day.id)
+                              : recurrenceDays.add(day.id);
+                        }),
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              ReminderFormOption(
+                label: 'Horário da tarefa',
+                value: taskTime ?? 'Opcional',
+                icon: CupertinoIcons.clock,
+                onTap: pickTaskTime,
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Deseja receber uma notificação deste lembrete?',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                    CupertinoSwitch(
+                      value: notificationEnabled,
+                      activeTrackColor: iosBlue,
+                      onChanged: (value) =>
+                          setState(() => notificationEnabled = value),
+                    ),
+                  ],
+                ),
+              ),
+              if (notificationEnabled) ...[
+                const SizedBox(height: 12),
+                ReminderFormOption(
+                  label: 'Horário da notificação',
+                  value: notificationTime ?? 'Escolher',
+                  icon: CupertinoIcons.bell,
+                  onTap: pickReminderTime,
+                ),
+              ],
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  error!,
+                  style: const TextStyle(color: iosRed, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton(
+                  key: const ValueKey('save-reminder-button'),
+                  color: iosBlue,
+                  borderRadius: BorderRadius.circular(12),
+                  onPressed: save,
+                  child: Text(
+                    isEditing ? 'Salvar alterações' : 'Criar lembrete',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ReminderFormField extends StatelessWidget {
+  const ReminderFormField({
+    super.key,
+    required this.label,
+    required this.controller,
+    required this.hint,
+    this.maxLines = 1,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ReminderFormOption extends StatelessWidget {
+  const ReminderFormOption({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(12),
+      onPressed: onTap,
+      child: Row(
+        children: [
+          Icon(icon, color: iosBlue, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const Icon(CupertinoIcons.chevron_right, color: iosGray, size: 14),
+        ],
+      ),
     );
   }
 }
@@ -1601,6 +2461,28 @@ class _NotasPageState extends State<NotasPage> {
     );
   }
 
+  Future<void> showNoteActions(QuickNote note) async {
+    final shouldDelete = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (popupContext) => CupertinoActionSheet(
+        title: const Text('Opções da nota'),
+        message: Text(note.title.isEmpty ? 'Nota sem título' : note.title),
+        actions: [
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(popupContext, true),
+            child: const Text('Excluir nota'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(popupContext, false),
+          child: const Text('Cancelar'),
+        ),
+      ),
+    );
+    if (shouldDelete == true) await widget.store.deleteNote(note.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -1612,6 +2494,10 @@ class _NotasPageState extends State<NotasPage> {
               HabitexHeader(
                 title: 'Notas',
                 subtitle: '${widget.store.notes.length} anotações rápidas',
+                trailing: ProfileAvatarButton(
+                  profile: widget.store.profile,
+                  size: 38,
+                ),
               ),
               const SizedBox(height: 18),
               GridView.count(
@@ -1623,7 +2509,9 @@ class _NotasPageState extends State<NotasPage> {
                 children: [
                   for (final note in widget.store.notes)
                     GestureDetector(
+                      key: ValueKey('note-${note.id}'),
                       onTap: () => openNote(note),
+                      onLongPress: () => showNoteActions(note),
                       child: IosCard(
                         padding: const EdgeInsets.all(12),
                         child: Column(
@@ -1707,18 +2595,20 @@ class _NotasPageState extends State<NotasPage> {
 }
 
 class ProfileAvatarButton extends StatelessWidget {
-  const ProfileAvatarButton({super.key, required this.profile});
+  const ProfileAvatarButton({super.key, required this.profile, this.size = 34});
 
   final UserProfile profile;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return CupertinoButton(
-      minimumSize: const Size(34, 34),
+      key: const ValueKey('open-profile-sidebar'),
+      minimumSize: Size(size, size),
       padding: EdgeInsets.zero,
-      borderRadius: BorderRadius.circular(17),
-      onPressed: () => Scaffold.of(context).openEndDrawer(),
-      child: UserAvatar(profile: profile, size: 34),
+      borderRadius: BorderRadius.circular(size / 2),
+      onPressed: () => Scaffold.maybeOf(context)?.openEndDrawer(),
+      child: UserAvatar(profile: profile, size: size),
     );
   }
 }
@@ -1762,10 +2652,38 @@ class DadosGeraisDrawer extends StatefulWidget {
 
 class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
   @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_refresh);
+  }
+
+  @override
+  void didUpdateWidget(covariant DadosGeraisDrawer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store != widget.store) {
+      oldWidget.store.removeListener(_refresh);
+      widget.store.addListener(_refresh);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_refresh);
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final drawerWidth = screenWidth < 440 ? screenWidth * 0.88 : 380.0;
     return SafeArea(
       child: Drawer(
-        width: MediaQuery.of(context).size.width * 0.85,
+        key: const ValueKey('habitex-sidebar'),
+        width: drawerWidth,
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         child: DadosGeraisMenu(store: widget.store),
       ),
@@ -1773,12 +2691,23 @@ class _DadosGeraisDrawerState extends State<DadosGeraisDrawer> {
   }
 }
 
-class DadosGeraisMenu extends StatelessWidget {
+class DadosGeraisMenu extends StatefulWidget {
   const DadosGeraisMenu({super.key, required this.store});
 
   final HabitexStore store;
 
+  @override
+  State<DadosGeraisMenu> createState() => _DadosGeraisMenuState();
+}
+
+class _DadosGeraisMenuState extends State<DadosGeraisMenu> {
+  bool navigating = false;
+
+  HabitexStore get store => widget.store;
+
   void openPage(BuildContext context, Widget page) {
+    if (navigating) return;
+    navigating = true;
     final navigator = Navigator.of(context, rootNavigator: true);
     Scaffold.of(context).closeEndDrawer();
     navigator.push(CupertinoPageRoute<void>(builder: (_) => page));
@@ -1806,83 +2735,253 @@ class DadosGeraisMenu extends StatelessWidget {
     );
   }
 
+  Future<void> confirmLogout(BuildContext context) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('Sair da conta?'),
+        content: const Text('Deseja realmente sair da sua conta?'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sair'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) await logout(context);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final profile = store.profile;
+    final nickname = profile.nickname.trim().isEmpty
+        ? 'Minha conta'
+        : profile.nickname.trim();
+
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-        children: [
-          Row(
-            children: [
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () => Scaffold.of(context).closeEndDrawer(),
-                child: Icon(
-                  CupertinoIcons.xmark,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Dados Gerais',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          IosCard(
-            padding: EdgeInsets.zero,
-            child: Column(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+            sliver: SliverList.list(
               children: [
-                DadosGeraisTile(
-                  icon: CupertinoIcons.person_fill,
-                  title: 'Perfil',
-                  onTap: () => openPage(context, PerfilPage(store: store)),
+                SidebarHeader(
+                  profile: profile,
+                  nickname: nickname,
+                  onOpenProfile: () =>
+                      openPage(context, PerfilPage(store: store)),
+                  onClose: () => Scaffold.of(context).closeEndDrawer(),
                 ),
-                DrawerDivider(),
-                DadosGeraisTile(
-                  icon: CupertinoIcons.chart_bar_alt_fill,
-                  title: 'Estatísticas',
-                  onTap: () =>
-                      openPage(context, EstatisticasPage(store: store)),
+                const SizedBox(height: 26),
+                const SidebarSectionTitle('CONTA'),
+                const SizedBox(height: 8),
+                IosCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      DadosGeraisTile(
+                        icon: CupertinoIcons.person,
+                        title: 'Meu perfil',
+                        onTap: () =>
+                            openPage(context, PerfilPage(store: store)),
+                      ),
+                      const DrawerDivider(),
+                      DadosGeraisTile(
+                        icon: CupertinoIcons.chart_bar,
+                        title: 'Estatísticas',
+                        onTap: () =>
+                            openPage(context, EstatisticasPage(store: store)),
+                      ),
+                      const DrawerDivider(),
+                      DadosGeraisTile(
+                        icon: CupertinoIcons.bell,
+                        title: 'Notificações',
+                        onTap: () =>
+                            openPage(context, NotificacoesPage(store: store)),
+                      ),
+                      const DrawerDivider(),
+                      DadosGeraisTile(
+                        icon: CupertinoIcons.arrow_down_doc,
+                        title: 'Exportar dados',
+                        onTap: () =>
+                            openPage(context, ExportarPage(store: store)),
+                      ),
+                    ],
+                  ),
                 ),
-                DrawerDivider(),
-                DadosGeraisTile(
-                  icon: CupertinoIcons.bell_fill,
-                  title: 'Notificações',
-                  onTap: () =>
-                      openPage(context, NotificacoesPage(store: store)),
+                const SizedBox(height: 24),
+                const SidebarSectionTitle('ASSINATURA'),
+                const SizedBox(height: 8),
+                IosCard(
+                  padding: EdgeInsets.zero,
+                  child: DadosGeraisTile(
+                    icon: CupertinoIcons.sparkles,
+                    title: 'Habitex Premium',
+                    subtitle: 'Conheça os benefícios',
+                    onTap: () => openPage(context, const AssinaturaPage()),
+                  ),
                 ),
-                DrawerDivider(),
-                DadosGeraisTile(
-                  icon: CupertinoIcons.arrow_down_doc_fill,
-                  title: 'Exportar Dados',
-                  onTap: () => openPage(context, ExportarPage(store: store)),
+                const SizedBox(height: 18),
+                SidebarLogoutButton(onPressed: () => confirmLogout(context)),
+              ],
+            ),
+          ),
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 24, 18, 22),
+                child: Text(
+                  'Habitex',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
-                DrawerDivider(),
-                DadosGeraisTile(
-                  icon: CupertinoIcons.star_fill,
-                  title: 'Assinatura Premium',
-                  onTap: () => openPage(context, const AssinaturaPage()),
-                ),
-                DrawerDivider(),
-                DadosGeraisTile(
-                  icon: CupertinoIcons.square_arrow_left,
-                  title: 'Sair',
-                  color: iosRed,
-                  showChevron: false,
-                  onTap: () => logout(context),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SidebarHeader extends StatelessWidget {
+  const SidebarHeader({
+    super.key,
+    required this.profile,
+    required this.nickname,
+    required this.onOpenProfile,
+    required this.onClose,
+  });
+
+  final UserProfile profile;
+  final String nickname;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: CupertinoButton(
+            key: const ValueKey('sidebar-profile-header'),
+            padding: EdgeInsets.zero,
+            alignment: Alignment.centerLeft,
+            onPressed: onOpenProfile,
+            child: Row(
+              children: [
+                UserAvatar(profile: profile, size: 44),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nickname,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Minha conta Habitex',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ],
+        ),
+        CupertinoButton(
+          key: const ValueKey('close-sidebar'),
+          minimumSize: const Size(44, 44),
+          padding: EdgeInsets.zero,
+          onPressed: onClose,
+          child: Icon(
+            CupertinoIcons.xmark,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 20,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class SidebarSectionTitle extends StatelessWidget {
+  const SidebarSectionTitle(this.title, {super.key});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class SidebarLogoutButton extends StatelessWidget {
+  const SidebarLogoutButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: CupertinoButton(
+        key: const ValueKey('sidebar-logout'),
+        minimumSize: const Size(44, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        alignment: Alignment.centerLeft,
+        onPressed: onPressed,
+        child: const Row(
+          children: [
+            Icon(CupertinoIcons.square_arrow_left, color: iosRed, size: 20),
+            SizedBox(width: 12),
+            Text(
+              'Sair da conta',
+              style: TextStyle(
+                color: iosRed,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1894,12 +2993,14 @@ class DadosGeraisTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
+    this.subtitle,
     this.color,
     this.showChevron = true,
   });
 
   final IconData icon;
   final String title;
+  final String? subtitle;
   final VoidCallback onTap;
   final Color? color;
   final bool showChevron;
@@ -1910,20 +3011,37 @@ class DadosGeraisTile extends StatelessWidget {
       padding: EdgeInsets.zero,
       onPressed: onTap,
       child: SizedBox(
-        height: 56,
+        height: subtitle == null ? 52 : 62,
         child: Row(
           children: [
             const SizedBox(width: 16),
             Icon(icon, color: color ?? iosBlue, size: 22),
             const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: color ?? Theme.of(context).colorScheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: color ?? Theme.of(context).colorScheme.onSurface,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             if (showChevron)
@@ -2015,65 +3133,218 @@ class _PerfilPageState extends State<PerfilPage> {
   late final emailController = TextEditingController(
     text: widget.store.profile.email,
   );
-  final passwordController = TextEditingController();
   String? photoPath;
   String? photoBase64;
+  late String initialNickname;
+  late String initialEmail;
+  String? initialPhotoPath;
+  String? initialPhotoBase64;
   bool saving = false;
+  bool allowPop = false;
 
   @override
   void initState() {
     super.initState();
     photoPath = widget.store.profile.photoPath;
     photoBase64 = widget.store.profile.photoBase64;
-    nicknameController.addListener(refreshPreview);
+    initialNickname = nicknameController.text;
+    initialEmail = emailController.text;
+    initialPhotoPath = photoPath;
+    initialPhotoBase64 = photoBase64;
+    nicknameController.addListener(refresh);
+    emailController.addListener(refresh);
   }
 
   @override
   void dispose() {
-    nicknameController.removeListener(refreshPreview);
+    nicknameController.removeListener(refresh);
+    emailController.removeListener(refresh);
     nicknameController.dispose();
     emailController.dispose();
-    passwordController.dispose();
     super.dispose();
   }
 
-  void refreshPreview() {
-    setState(() {});
+  bool get hasChanges =>
+      nicknameController.text.trim() != initialNickname ||
+      emailController.text.trim().toLowerCase() != initialEmail ||
+      photoPath != initialPhotoPath ||
+      photoBase64 != initialPhotoBase64;
+
+  void refresh() {
+    if (mounted) setState(() {});
   }
 
-  Future<void> pickPhoto() async {
-    final image = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      imageQuality: 86,
+  void showMessage(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(message),
+        backgroundColor: error ? iosRed : null,
+      ),
     );
-    if (image == null) return;
-    final bytes = await image.readAsBytes();
+  }
+
+  Future<void> choosePhoto() async {
+    final action = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Foto de perfil'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context, 'gallery'),
+            child: const Text('Escolher da galeria'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context, 'camera'),
+            child: const Text('Tirar foto'),
+          ),
+          if (photoPath != null || photoBase64 != null)
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () => Navigator.pop(context, 'remove'),
+              child: const Text('Remover foto'),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'remove') {
+      setState(() {
+        photoPath = null;
+        photoBase64 = null;
+      });
+      return;
+    }
+    try {
+      final image = await ImagePicker().pickImage(
+        source: action == 'camera' ? ImageSource.camera : ImageSource.gallery,
+        maxWidth: 512,
+        imageQuality: 86,
+      );
+      if (image == null || !mounted) return;
+      final bytes = await image.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        photoPath = image.path;
+        photoBase64 = base64Encode(bytes);
+      });
+    } catch (_) {
+      if (mounted) showMessage('Não foi possível acessar a foto.', error: true);
+    }
+  }
+
+  Future<void> editValue({required bool email}) async {
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProfileEditFieldSheet(
+        title: email ? 'Alterar e-mail' : 'Alterar apelido',
+        label: email ? 'E-MAIL' : 'APELIDO',
+        initialValue: email ? emailController.text : nicknameController.text,
+        keyboardType: email ? TextInputType.emailAddress : TextInputType.text,
+        validator: (value) {
+          if (value.trim().isEmpty) {
+            return email ? 'Informe um e-mail.' : 'Informe um apelido.';
+          }
+          if (email &&
+              (!value.contains('@') ||
+                  !value.substring(value.indexOf('@') + 1).contains('.'))) {
+            return 'Informe um e-mail válido.';
+          }
+          return null;
+        },
+      ),
+    );
+    if (value == null || !mounted) return;
     setState(() {
-      photoPath = image.path;
-      photoBase64 = base64Encode(bytes);
+      if (email) {
+        emailController.text = value.trim().toLowerCase();
+      } else {
+        nicknameController.text = value.trim();
+      }
     });
   }
 
   Future<void> save() async {
+    if (!hasChanges || saving) return;
+    final nickname = nicknameController.text.trim();
+    final email = emailController.text.trim().toLowerCase();
+    if (nickname.isEmpty) {
+      showMessage('Informe um apelido.', error: true);
+      return;
+    }
+    if (!email.contains('@') ||
+        !email.substring(email.indexOf('@') + 1).contains('.')) {
+      showMessage('Informe um e-mail válido.', error: true);
+      return;
+    }
+
     setState(() => saving = true);
+    final result = await AuthService().atualizarPerfil(
+      apelido: nickname,
+      email: email,
+    );
+    if (!result.sucesso) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      showMessage(
+        result.erro ?? 'Não foi possível salvar o perfil.',
+        error: true,
+      );
+      return;
+    }
+
     await widget.store.saveProfile(
       UserProfile(
-        nickname: nicknameController.text.trim(),
-        email: emailController.text.trim(),
+        nickname: nickname,
+        email: email,
         photoPath: photoPath,
         photoBase64: photoBase64,
       ),
     );
-    // Senha salva localmente apenas como exemplo de UI.
-    // Em produção, usar autenticação real e armazenamento seguro.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('habitex.senha', passwordController.text);
     if (!mounted) return;
-    setState(() => saving = false);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Perfil atualizado ✓')));
+    setState(() {
+      saving = false;
+      initialNickname = nickname;
+      initialEmail = email;
+      initialPhotoPath = photoPath;
+      initialPhotoBase64 = photoBase64;
+    });
+    showMessage('Perfil atualizado');
+  }
+
+  Future<void> requestPop() async {
+    if (!hasChanges) {
+      Navigator.pop(context);
+      return;
+    }
+    final discard = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('Descartar alterações?'),
+        content: const Text('As alterações feitas no perfil não serão salvas.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Continuar editando'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => allowPop = true);
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -2085,85 +3356,656 @@ class _PerfilPageState extends State<PerfilPage> {
       photoBase64: photoBase64,
     );
 
-    return DrawerSubPageScaffold(
-      title: 'Perfil',
-      trailing: CupertinoButton(
-        padding: EdgeInsets.zero,
-        onPressed: saving ? null : save,
-        child: Text(
-          saving ? 'Salvando...' : 'Salvar',
-          style: const TextStyle(color: iosBlue, fontWeight: FontWeight.w600),
+    return PopScope(
+      canPop: allowPop || !hasChanges,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) requestPop();
+      },
+      child: DrawerSubPageScaffold(
+        title: 'Meu perfil',
+        onBack: requestPop,
+        trailing: CupertinoButton(
+          key: const ValueKey('save-profile-button'),
+          padding: EdgeInsets.zero,
+          onPressed: !hasChanges || saving ? null : save,
+          child: saving
+              ? const CupertinoActivityIndicator(color: iosBlue)
+              : Text(
+                  'Salvar',
+                  style: TextStyle(
+                    color: hasChanges ? iosBlue : iosGray,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+        ),
+        children: [
+          Center(
+            child: CupertinoButton(
+              key: const ValueKey('edit-profile-photo'),
+              padding: EdgeInsets.zero,
+              onPressed: choosePhoto,
+              child: Column(
+                children: [
+                  UserAvatar(profile: previewProfile, size: 96),
+                  const SizedBox(height: 12),
+                  Text(
+                    previewProfile.displayName,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Editar foto de perfil',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 30),
+          const ProfileSectionHeader('INFORMAÇÕES PESSOAIS'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                ProfileInformationTile(
+                  icon: CupertinoIcons.person,
+                  label: 'Apelido',
+                  value: nicknameController.text.trim().isEmpty
+                      ? 'Não informado'
+                      : nicknameController.text.trim(),
+                  onTap: () => editValue(email: false),
+                ),
+                const DrawerDivider(),
+                ProfileInformationTile(
+                  icon: CupertinoIcons.mail,
+                  label: 'E-mail',
+                  value: emailController.text.trim().isEmpty
+                      ? 'Não informado'
+                      : emailController.text.trim(),
+                  onTap: () => editValue(email: true),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 26),
+          const ProfileSectionHeader('SEGURANÇA'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ProfileNavigationTile(
+              icon: CupertinoIcons.lock,
+              title: 'Alterar senha',
+              subtitle: 'Gerencie a segurança da sua conta',
+              onTap: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => const ChangePasswordBottomSheet(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 26),
+          const ProfileSectionHeader('CONTA'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ProfileNavigationTile(
+              icon: CupertinoIcons.shield,
+              title: 'Privacidade e dados',
+              onTap: () => Navigator.push(
+                context,
+                CupertinoPageRoute<void>(
+                  builder: (_) => const PrivacyAndDataPage(),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileSectionHeader extends StatelessWidget {
+  const ProfileSectionHeader(this.title, {super.key});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 1.1,
         ),
       ),
-      children: [
-        Center(
-          child: CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: pickPhoto,
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
+    );
+  }
+}
+
+class ProfileInformationTile extends StatelessWidget {
+  const ProfileInformationTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      onPressed: onTap,
+      child: Row(
+        children: [
+          Icon(icon, color: iosBlue, size: 21),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                UserAvatar(profile: previewProfile, size: 112),
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.camera_fill,
-                      color: iosBlue,
-                      size: 18,
-                    ),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ],
             ),
           ),
-        ),
-        if (photoBase64 != null || photoPath != null) ...[
+          const SizedBox(width: 10),
+          Icon(
+            CupertinoIcons.pencil,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 17,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileNavigationTile extends StatelessWidget {
+  const ProfileNavigationTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      onPressed: onTap,
+      child: Row(
+        children: [
+          Icon(icon, color: iosBlue, size: 21),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Icon(
+            CupertinoIcons.chevron_right,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 16,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileEditFieldSheet extends StatefulWidget {
+  const ProfileEditFieldSheet({
+    super.key,
+    required this.title,
+    required this.label,
+    required this.initialValue,
+    required this.keyboardType,
+    required this.validator,
+  });
+
+  final String title;
+  final String label;
+  final String initialValue;
+  final TextInputType keyboardType;
+  final String? Function(String) validator;
+
+  @override
+  State<ProfileEditFieldSheet> createState() => _ProfileEditFieldSheetState();
+}
+
+class _ProfileEditFieldSheetState extends State<ProfileEditFieldSheet> {
+  late final TextEditingController controller;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    final message = widget.validator(controller.text);
+    if (message != null) {
+      setState(() => error = message);
+      return;
+    }
+    Navigator.pop(context, controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ProfileBottomSheetFrame(
+      title: widget.title,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              widget.label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
-          Center(
+          TextField(
+            key: ValueKey('profile-field-${widget.label}'),
+            controller: controller,
+            autofocus: true,
+            keyboardType: widget.keyboardType,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => submit(),
+            decoration: InputDecoration(
+              errorText: error,
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
             child: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => setState(() {
-                photoPath = null;
-                photoBase64 = null;
-              }),
+              color: iosBlue,
+              borderRadius: BorderRadius.circular(12),
+              onPressed: submit,
               child: const Text(
-                'Remover foto',
-                style: TextStyle(color: iosRed, fontWeight: FontWeight.w600),
+                'Concluir',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
         ],
-        const SizedBox(height: 22),
-        FieldBox(
-          label: 'APELIDO',
-          controller: nicknameController,
-          hint: 'Ex: Jenny',
-          fontSize: 20,
+      ),
+    );
+  }
+}
+
+class ChangePasswordBottomSheet extends StatefulWidget {
+  const ChangePasswordBottomSheet({super.key});
+
+  @override
+  State<ChangePasswordBottomSheet> createState() =>
+      _ChangePasswordBottomSheetState();
+}
+
+class _ChangePasswordBottomSheetState extends State<ChangePasswordBottomSheet> {
+  final currentController = TextEditingController();
+  final newController = TextEditingController();
+  final confirmController = TextEditingController();
+  bool currentVisible = false;
+  bool newVisible = false;
+  bool confirmVisible = false;
+  bool loading = false;
+  String? error;
+
+  @override
+  void dispose() {
+    currentController.dispose();
+    newController.dispose();
+    confirmController.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit() async {
+    if (currentController.text.isEmpty ||
+        newController.text.isEmpty ||
+        confirmController.text.isEmpty) {
+      setState(() => error = 'Preencha todos os campos.');
+      return;
+    }
+    if (newController.text.length < 6) {
+      setState(() => error = 'A nova senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    if (newController.text != confirmController.text) {
+      setState(() => error = 'As senhas não coincidem.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    final result = await AuthService().alterarSenha(
+      senhaAtual: currentController.text,
+      novaSenha: newController.text,
+    );
+    if (!mounted) return;
+    if (!result.sucesso) {
+      setState(() {
+        loading = false;
+        error = result.erro ?? 'Não foi possível alterar a senha.';
+      });
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pop(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('Senha alterada com sucesso'),
+      ),
+    );
+  }
+
+  Widget passwordField({
+    required String label,
+    required TextEditingController controller,
+    required bool visible,
+    required VoidCallback toggle,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: !visible,
+      enabled: !loading,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
         ),
-        const SizedBox(height: 14),
-        FieldBox(
-          label: 'E-MAIL',
-          controller: emailController,
-          hint: 'voce@email.com',
-          keyboardType: TextInputType.emailAddress,
-          fontSize: 20,
+        suffixIcon: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: toggle,
+          child: Icon(
+            visible ? CupertinoIcons.eye_slash : CupertinoIcons.eye,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 20,
+          ),
         ),
-        const SizedBox(height: 14),
-        FieldBox(
-          label: 'SENHA',
-          controller: passwordController,
-          hint: '••••••••',
-          obscureText: true,
-          fontSize: 20,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ProfileBottomSheetFrame(
+      title: 'Alterar senha',
+      child: Column(
+        children: [
+          passwordField(
+            label: 'SENHA ATUAL',
+            controller: currentController,
+            visible: currentVisible,
+            toggle: () => setState(() => currentVisible = !currentVisible),
+          ),
+          const SizedBox(height: 12),
+          passwordField(
+            label: 'NOVA SENHA',
+            controller: newController,
+            visible: newVisible,
+            toggle: () => setState(() => newVisible = !newVisible),
+          ),
+          const SizedBox(height: 12),
+          passwordField(
+            label: 'CONFIRMAR NOVA SENHA',
+            controller: confirmController,
+            visible: confirmVisible,
+            toggle: () => setState(() => confirmVisible = !confirmVisible),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                error!,
+                style: const TextStyle(color: iosRed, fontSize: 13),
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoButton(
+              color: iosBlue,
+              borderRadius: BorderRadius.circular(12),
+              onPressed: loading ? null : submit,
+              child: loading
+                  ? const CupertinoActivityIndicator(color: Colors.white)
+                  : const Text(
+                      'Alterar senha',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileBottomSheetFrame extends StatelessWidget {
+  const ProfileBottomSheetFrame({
+    super.key,
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 14,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PrivacyAndDataPage extends StatelessWidget {
+  const PrivacyAndDataPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DrawerSubPageScaffold(
+      title: 'Privacidade e dados',
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Seus dados no Habitex',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Nesta versão, perfil, hábitos, lembretes, notas e progresso '
+                'são mantidos localmente nas preferências do aplicativo neste '
+                'dispositivo.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Exportação',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'O histórico de hábitos pode ser exportado em CSV pela opção '
+                '“Exportar Dados” no menu Dados Gerais.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -2176,11 +4018,13 @@ class DrawerSubPageScaffold extends StatelessWidget {
     required this.title,
     required this.children,
     this.trailing,
+    this.onBack,
   });
 
   final String title;
   final List<Widget> children;
   final Widget? trailing;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -2206,7 +4050,7 @@ class DrawerSubPageScaffold extends StatelessWidget {
               children: [
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: onBack ?? () => Navigator.pop(context),
                   child: Icon(
                     CupertinoIcons.chevron_left,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2238,31 +4082,79 @@ class DrawerSubPageScaffold extends StatelessWidget {
   }
 }
 
-class EstatisticasPage extends StatelessWidget {
+class EstatisticasPage extends StatefulWidget {
   const EstatisticasPage({super.key, required this.store});
 
   final HabitexStore store;
+
+  @override
+  State<EstatisticasPage> createState() => _EstatisticasPageState();
+}
+
+class _EstatisticasPageState extends State<EstatisticasPage> {
+  int selectedDays = 7;
 
   @override
   Widget build(BuildContext context) {
     final statsUi = StatsResponsiveUi.fromWidth(
       MediaQuery.of(context).size.width,
     );
-    final highlight = mostConsistentHabit(store);
-    final allStreaks = habitStreaks(store);
-    final dailyRates = habitDailyCompletionRates(store);
-    final habitRates = habitCompletionRates(store);
+    final snapshot = statisticsSnapshot(widget.store, selectedDays);
 
     return DrawerSubPageScaffold(
       title: 'Estatísticas',
       children: [
-        ConsistentHabitCard(highlight: highlight, ui: statsUi),
+        Text(
+          'Seu desempenho',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: statsUi.fonteTitulo,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        SizedBox(height: statsUi.paddingCard * 0.65),
+        Row(
+          children: [
+            Expanded(
+              child: StatisticsSummaryCard(
+                title: 'Conclusão',
+                value: '${(snapshot.completionPercent * 100).round()}%',
+                subtitle: 'no período selecionado',
+                ui: statsUi,
+              ),
+            ),
+            SizedBox(width: statsUi.paddingCard * 0.7),
+            Expanded(
+              child: StatisticsSummaryCard(
+                title: 'Maior sequência',
+                value:
+                    '${snapshot.maxStreak} ${snapshot.maxStreak == 1 ? 'dia' : 'dias'}',
+                subtitle: 'melhor sequência atual',
+                ui: statsUi,
+              ),
+            ),
+          ],
+        ),
         SizedBox(height: statsUi.espacoEntreBlocos),
-        StreakCard(ranking: allStreaks, ui: statsUi),
+        MostConsistentHabitCard(
+          highlight: snapshot.mostConsistent,
+          ui: statsUi,
+        ),
         SizedBox(height: statsUi.espacoEntreBlocos),
-        WeeklyBarsCard(rates: dailyRates, ui: statsUi),
+        StatisticsPeriodSelector(
+          selectedDays: selectedDays,
+          onChanged: (days) => setState(() => selectedDays = days),
+        ),
         SizedBox(height: statsUi.espacoEntreBlocos),
-        HabitRatesSection(rates: habitRates, ui: statsUi),
+        StatisticsActivityChart(
+          rates: snapshot.dailyRates,
+          periodDays: selectedDays,
+          ui: statsUi,
+        ),
+        SizedBox(height: statsUi.espacoEntreBlocos),
+        HabitRankingCard(ranking: snapshot.ranking, ui: statsUi),
+        SizedBox(height: statsUi.espacoEntreBlocos),
+        HabitRatesSection(rates: snapshot.habitRates, ui: statsUi),
       ],
     );
   }
@@ -2334,10 +4226,17 @@ class HabitConsistency {
 }
 
 class DailyCompletionRate {
-  const DailyCompletionRate({required this.date, required this.percent});
+  const DailyCompletionRate({
+    required this.date,
+    required this.percent,
+    required this.scheduled,
+    required this.completed,
+  });
 
   final DateTime date;
   final double percent;
+  final int scheduled;
+  final int completed;
 }
 
 class HabitCompletionRate {
@@ -2361,8 +4260,97 @@ class HabitStreak {
   final int days;
 }
 
-class ConsistentHabitCard extends StatelessWidget {
-  const ConsistentHabitCard({
+class StatisticsHabitPerformance {
+  const StatisticsHabitPerformance({required this.rate, required this.streak});
+
+  final HabitCompletionRate rate;
+  final int streak;
+}
+
+class StatisticsSnapshot {
+  const StatisticsSnapshot({
+    required this.dailyRates,
+    required this.habitRates,
+    required this.ranking,
+    required this.mostConsistent,
+    required this.completionPercent,
+    required this.maxStreak,
+  });
+
+  final List<DailyCompletionRate> dailyRates;
+  final List<HabitCompletionRate> habitRates;
+  final List<StatisticsHabitPerformance> ranking;
+  final HabitConsistency? mostConsistent;
+  final double completionPercent;
+  final int maxStreak;
+}
+
+class StatisticsSummaryCard extends StatelessWidget {
+  const StatisticsSummaryCard({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.ui,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+  final StatsResponsiveUi ui;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(minHeight: ui.paddingCard * 8.5),
+      padding: EdgeInsets.all(ui.paddingCard),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: ui.fonteSecundaria,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          SizedBox(height: ui.paddingCard * 0.55),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: ui.fonteStreakNumero,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          SizedBox(height: ui.paddingCard * 0.5),
+          Text(
+            subtitle,
+            maxLines: 2,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: ui.fonteLabelGrafico,
+              height: 1.25,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class MostConsistentHabitCard extends StatelessWidget {
+  const MostConsistentHabitCard({
     super.key,
     required this.highlight,
     required this.ui,
@@ -2373,226 +4361,9 @@ class ConsistentHabitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final habit = highlight?.habit;
-    final count = highlight?.completedDays ?? 0;
-    final scheduledDays = highlight?.scheduledDays ?? 0;
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: ui.paddingCard,
-        vertical: ui.paddingCard * 0.85,
-      ),
-      decoration: BoxDecoration(
-        color: iosGreen.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: const Border(left: BorderSide(color: iosGreen, width: 4)),
-      ),
-      child: habit == null
-          ? Text(
-              'Cadastre hábitos para ver seu destaque semanal.',
-              style: TextStyle(
-                color: iosGreen,
-                fontSize: ui.fonteCorpo,
-                fontWeight: FontWeight.w600,
-              ),
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  habit.icon,
-                  style: TextStyle(fontSize: ui.tamanhoIconeCard),
-                ),
-                SizedBox(width: ui.paddingCard * 0.6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Hábito mais consistente',
-                        style: TextStyle(
-                          color: iosGreen,
-                          fontSize: ui.fonteSecundaria,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      SizedBox(height: ui.paddingH * 0.24),
-                      Text(
-                        habit.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: iosGreen,
-                          fontSize: ui.fonteTitulo,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: ui.paddingH * 0.48),
-                Text(
-                  '$count/$scheduledDays dias',
-                  style: TextStyle(
-                    color: iosGreen,
-                    fontSize: ui.fonteCorpo,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-class StreakCard extends StatelessWidget {
-  const StreakCard({super.key, required this.ranking, required this.ui});
-
-  final List<HabitStreak> ranking;
-  final StatsResponsiveUi ui;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(ui.paddingCard),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text('🔥', style: TextStyle(fontSize: ui.tamanhoIconeMini)),
-              SizedBox(width: ui.paddingH * 0.36),
-              Text(
-                'Ranking de sequências',
-                style: TextStyle(
-                  fontSize: ui.fonteSecundaria,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: ui.paddingH * 0.72),
-          if (ranking.isEmpty)
-            Text(
-              'Cadastre hábitos para iniciar sua sequência.',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: ui.fonteSecundaria,
-                fontWeight: FontWeight.w500,
-              ),
-            )
-          else
-            for (final entry in ranking.asMap().entries)
-              Padding(
-                padding: EdgeInsets.only(bottom: ui.paddingH * 0.6),
-                child: StreakRankingItem(
-                  position: entry.key,
-                  streak: entry.value,
-                  ui: ui,
-                ),
-              ),
-        ],
-      ),
-    );
-  }
-}
-
-class StreakRankingItem extends StatelessWidget {
-  const StreakRankingItem({
-    super.key,
-    required this.position,
-    required this.streak,
-    required this.ui,
-  });
-
-  final int position;
-  final HabitStreak streak;
-  final StatsResponsiveUi ui;
-
-  @override
-  Widget build(BuildContext context) {
-    final first = position == 0;
-    final noStreak = streak.days == 0;
-    final label = switch (position) {
-      0 => '🥇',
-      1 => '🥈',
-      2 => '🥉',
-      _ => '${position + 1}',
-    };
-    final medal = position <= 2;
-    final fontSize = first ? ui.fonteCorpo + 1 : ui.fonteCorpo;
-    final textColor = noStreak
-        ? Theme.of(context).colorScheme.onSurfaceVariant
-        : Theme.of(context).colorScheme.onSurface;
-    final daysColor = noStreak
-        ? Theme.of(context).colorScheme.onSurfaceVariant
-        : iosBlue;
-
-    return Row(
-      children: [
-        SizedBox(
-          width: ui.paddingH * 1.8,
-          child: medal
-              ? Text(label, style: TextStyle(fontSize: ui.tamanhoIconeMini))
-              : Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: ui.fonteSecundaria,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-        ),
-        SizedBox(width: ui.paddingH * 0.36),
-        Text(
-          streak.habit.icon,
-          style: TextStyle(fontSize: ui.tamanhoIconeMini),
-        ),
-        SizedBox(width: ui.paddingH * 0.48),
-        Expanded(
-          child: Text(
-            streak.habit.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: first ? FontWeight.w600 : FontWeight.w500,
-              color: textColor,
-            ),
-          ),
-        ),
-        SizedBox(width: ui.paddingH * 0.48),
-        Text(
-          '${streak.days} ${streak.days == 1 ? 'dia' : 'dias'}',
-          style: TextStyle(
-            color: daysColor,
-            fontSize: fontSize,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class WeeklyBarsCard extends StatelessWidget {
-  const WeeklyBarsCard({super.key, required this.rates, required this.ui});
-
-  final List<DailyCompletionRate> rates;
-  final StatsResponsiveUi ui;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasData = rates.any((entry) => entry.percent > 0);
+    final rate = highlight == null || highlight!.scheduledDays == 0
+        ? 0.0
+        : highlight!.completedDays / highlight!.scheduledDays;
 
     return Container(
       width: double.infinity,
@@ -2605,11 +4376,151 @@ class WeeklyBarsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Últimos 7 dias',
+            'HÁBITO MAIS CONSISTENTE',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: ui.fonteLabelGrafico,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 1,
+            ),
+          ),
+          SizedBox(height: ui.paddingCard * 0.7),
+          if (highlight == null || highlight!.scheduledDays == 0)
+            Text(
+              'Complete hábitos para acompanhar sua evolução.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: ui.fonteCorpo,
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    highlight!.habit.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: ui.fonteTitulo,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${highlight!.completedDays}/${highlight!.scheduledDays}  ·  ${(rate * 100).round()}%',
+                  style: TextStyle(
+                    color: iosBlue,
+                    fontSize: ui.fonteCorpo,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: ui.paddingCard * 0.75),
+            LinearProgressIndicator(
+              value: rate,
+              minHeight: 5,
+              borderRadius: BorderRadius.circular(99),
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.08),
+              valueColor: const AlwaysStoppedAnimation<Color>(iosBlue),
+            ),
+            SizedBox(height: ui.paddingCard * 0.5),
+            Text(
+              'maior taxa de consistência no período',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: ui.fonteLabelGrafico,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class StatisticsPeriodSelector extends StatelessWidget {
+  const StatisticsPeriodSelector({
+    super.key,
+    required this.selectedDays,
+    required this.onChanged,
+  });
+
+  final int selectedDays;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoSlidingSegmentedControl<int>(
+      key: const ValueKey('statistics-period-selector'),
+      groupValue: selectedDays,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      thumbColor: iosBlue,
+      children: {
+        for (final days in const [7, 30, 90])
+          days: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              '$days dias',
+              style: TextStyle(
+                color: selectedDays == days
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+      },
+      onValueChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class StatisticsActivityChart extends StatelessWidget {
+  const StatisticsActivityChart({
+    super.key,
+    required this.rates,
+    required this.periodDays,
+    required this.ui,
+  });
+
+  final List<DailyCompletionRate> rates;
+  final int periodDays;
+  final StatsResponsiveUi ui;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasData = rates.any((entry) => entry.scheduled > 0);
+    final barWidth = periodDays == 7
+        ? ui.larguraBarra
+        : periodDays == 30
+        ? 5.0
+        : 2.2;
+
+    return Container(
+      key: ValueKey('statistics-chart-$periodDays'),
+      width: double.infinity,
+      padding: EdgeInsets.all(ui.paddingCard),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Atividade · últimos $periodDays dias',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
               fontSize: ui.fonteTitulo,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w500,
             ),
           ),
           SizedBox(height: ui.espacoEntreBlocos),
@@ -2629,7 +4540,7 @@ class WeeklyBarsCard extends StatelessWidget {
                   ),
                   SizedBox(height: ui.paddingCard * 0.75),
                   Text(
-                    'Nenhum dado ainda',
+                    'Nenhuma atividade no período',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: ui.fonteCorpo,
@@ -2638,7 +4549,7 @@ class WeeklyBarsCard extends StatelessWidget {
                   ),
                   SizedBox(height: ui.paddingCard * 0.25),
                   Text(
-                    'O gráfico será preenchido conforme você usa o app.',
+                    'Complete hábitos para acompanhar sua evolução.',
                     style: TextStyle(
                       fontSize: ui.fonteSecundaria,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2652,6 +4563,7 @@ class WeeklyBarsCard extends StatelessWidget {
             Column(
               children: [
                 SizedBox(
+                  key: const ValueKey('statistics-bar-chart'),
                   height: ui.alturaGrafico,
                   width: double.infinity,
                   child: BarChart(
@@ -2663,11 +4575,13 @@ class WeeklyBarsCard extends StatelessWidget {
                         touchTooltipData: BarTouchTooltipData(
                           getTooltipItem: (group, groupIndex, rod, rodIndex) {
                             return BarTooltipItem(
+                              '${formatShortDate(rates[group.x].date)}\n'
+                              '${rates[group.x].completed}/${rates[group.x].scheduled} concluídos\n'
                               '${rod.toY.toInt()}%',
                               TextStyle(
-                                color: Theme.of(context).colorScheme.surface,
+                                color: Colors.white,
                                 fontSize: ui.fonteSecundaria,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w500,
                               ),
                             );
                           },
@@ -2725,24 +4639,23 @@ class WeeklyBarsCard extends StatelessWidget {
                             reservedSize: ui.paddingH * 1.55,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
-                              if (index < 0 || index >= 7) {
+                              if (index < 0 ||
+                                  index >= rates.length ||
+                                  !showStatisticsXAxisLabel(
+                                    index,
+                                    rates.length,
+                                  )) {
                                 return const SizedBox.shrink();
                               }
-                              const dayLabels = [
-                                'S',
-                                'T',
-                                'Q',
-                                'Q',
-                                'S',
-                                'S',
-                                'D',
-                              ];
                               return Padding(
                                 padding: EdgeInsets.only(
                                   top: ui.paddingH * 0.24,
                                 ),
                                 child: Text(
-                                  dayLabels[rates[index].date.weekday - 1],
+                                  statisticsXAxisLabel(
+                                    rates[index].date,
+                                    periodDays,
+                                  ),
                                   textAlign: TextAlign.center,
                                   softWrap: false,
                                   style: TextStyle(
@@ -2765,15 +4678,13 @@ class WeeklyBarsCard extends StatelessWidget {
                             barRods: [
                               BarChartRodData(
                                 toY: rates[index].percent,
-                                width: ui.larguraBarra,
-                                color: rates[index].percent == 0
+                                width: barWidth,
+                                color: rates[index].scheduled == 0
                                     ? Theme.of(context).colorScheme.onSurface
                                           .withValues(alpha: 0.08)
-                                    : rates[index].percent >= 100
-                                    ? iosGreen
                                     : iosBlue,
                                 borderRadius: BorderRadius.circular(
-                                  ui.larguraBarra * 0.33,
+                                  barWidth * 0.45,
                                 ),
                                 borderSide:
                                     isSameDate(
@@ -2796,7 +4707,7 @@ class WeeklyBarsCard extends StatelessWidget {
                 ),
                 SizedBox(height: ui.paddingH * 0.6),
                 Text(
-                  'O gráfico será preenchido conforme você usa o app.',
+                  'Toque em uma barra para ver os detalhes do dia.',
                   style: TextStyle(
                     fontSize: ui.fonteLabelGrafico,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2805,6 +4716,108 @@ class WeeklyBarsCard extends StatelessWidget {
                 ),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class HabitRankingCard extends StatelessWidget {
+  const HabitRankingCard({super.key, required this.ranking, required this.ui});
+
+  final List<StatisticsHabitPerformance> ranking;
+  final StatsResponsiveUi ui;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('habit-ranking-card'),
+      padding: EdgeInsets.all(ui.paddingCard),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ranking de hábitos',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: ui.fonteTitulo,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: ui.paddingCard * 0.75),
+          if (ranking.isEmpty)
+            Text(
+              'Conforme você usar o app, seu ranking aparecerá aqui.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: ui.fonteCorpo,
+              ),
+            )
+          else
+            for (final entry in ranking.asMap().entries) ...[
+              if (entry.key > 0)
+                Divider(
+                  height: ui.paddingCard * 1.25,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.08),
+                ),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    child: Text(
+                      '${entry.key + 1}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: ui.fonteCorpo,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.value.rate.habit.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: ui.fonteCorpo,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${entry.value.streak} ${entry.value.streak == 1 ? 'dia' : 'dias'} de sequência',
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                            fontSize: ui.fonteLabelGrafico,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${(entry.value.rate.percent * 100).round()}%',
+                    style: TextStyle(
+                      color: iosBlue,
+                      fontSize: ui.fonteCorpo,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
         ],
       ),
     );
@@ -2837,7 +4850,7 @@ class HabitRatesSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Taxa de conclusão por hábito',
+          'Conclusão por hábito',
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurface,
             fontSize: ui.fonteTitulo,
@@ -2863,63 +4876,57 @@ class HabitRateCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final percent = (rate.percent * 100).round();
-    final progressColor = corDoPercentual(rate.percent);
-
     return Container(
       padding: EdgeInsets.all(ui.paddingCard),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            rate.habit.icon,
-            style: TextStyle(fontSize: ui.tamanhoIconeCard),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  rate.habit.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: ui.fonteCorpo,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${rate.completedDays}/${rate.scheduledDays}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: ui.fonteSecundaria,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$percent%',
+                style: TextStyle(
+                  color: iosBlue,
+                  fontSize: ui.fonteCorpo,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-          SizedBox(width: ui.paddingH * 0.72),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        rate.habit.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: ui.fonteCorpo,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: ui.paddingH * 0.48),
-                    Text(
-                      '$percent%',
-                      style: TextStyle(
-                        color: progressColor,
-                        fontSize: ui.fonteCorpo,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: ui.paddingH * 0.36),
-                LinearProgressIndicator(
-                  minHeight: ui.paddingH * 0.36,
-                  borderRadius: BorderRadius.circular(99),
-                  value: rate.percent,
-                  valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.08),
-                ),
-              ],
-            ),
+          SizedBox(height: ui.paddingH * 0.5),
+          LinearProgressIndicator(
+            minHeight: 5,
+            borderRadius: BorderRadius.circular(99),
+            value: rate.percent,
+            valueColor: const AlwaysStoppedAnimation<Color>(iosBlue),
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.08),
           ),
         ],
       ),
@@ -2941,6 +4948,8 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
   late String _notifRotinaHora;
   late Map<String, bool> _notifHabitoAtivo;
   late Map<String, List<String>> _notifHabitoHoras;
+  NotificationPermissionState _permissionState =
+      NotificationPermissionState.checking;
 
   @override
   void initState() {
@@ -2951,33 +4960,97 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     _notifHabitoHoras = widget.store.notifHabitoHoras.map(
       (habitId, hours) => MapEntry(habitId, List<String>.from(hours)),
     );
-    requestNotificationPermission();
+    _checkNotificationPermission();
   }
 
-  Future<void> requestNotificationPermission() async {
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
+  Future<void> _checkNotificationPermission() async {
+    var state = NotificationPermissionState.unknown;
+    try {
+      if (Platform.isIOS) {
+        final settings = await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.checkPermissions();
+        if (settings != null) {
+          state = settings.isEnabled || settings.isProvisionalEnabled
+              ? NotificationPermissionState.authorized
+              : NotificationPermissionState.denied;
+        }
+      } else if (Platform.isAndroid) {
+        final enabled = await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.areNotificationsEnabled();
+        if (enabled != null) {
+          state = enabled
+              ? NotificationPermissionState.authorized
+              : NotificationPermissionState.denied;
+        }
+      }
+    } catch (_) {
+      state = NotificationPermissionState.unknown;
+    }
+    if (mounted) setState(() => _permissionState = state);
+  }
+
+  Future<bool> _ensureNotificationPermission() async {
+    if (_permissionState == NotificationPermissionState.authorized) {
+      return true;
+    }
+    bool? granted;
+    try {
+      if (Platform.isIOS) {
+        granted = await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.requestPermissions(alert: true, badge: true, sound: true);
+      } else if (Platform.isAndroid) {
+        granted = await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.requestNotificationsPermission();
+      }
+    } catch (_) {
+      granted = null;
+    }
+    final allowed =
+        granted ?? _permissionState == NotificationPermissionState.unknown;
+    if (mounted && granted != null) {
+      setState(() {
+        _permissionState = allowed
+            ? NotificationPermissionState.authorized
+            : NotificationPermissionState.denied;
+      });
+    }
+    return allowed;
   }
 
   int get pendingTasksToday {
-    final tasks = widget.store.tasksByDay[dayId(DateTime.now())] ?? [];
-    return tasks.where((task) => !task.done).length;
+    final today = DateTime.now();
+    return widget.store
+        .tasksForDate(today)
+        .where((task) => !widget.store.isTaskDoneOnDate(task, today))
+        .length;
   }
 
   Future<void> toggleRoutine(bool enabled) async {
+    if (enabled && !await _ensureNotificationPermission()) return;
     setState(() => _notifRotinaAtiva = enabled);
     await widget.store.saveNotifRotina(ativo: enabled, hora: _notifRotinaHora);
     if (!enabled) {
       await flutterLocalNotificationsPlugin.cancel(0);
       return;
     }
-    await agendarNotifRotina(
-      timeOfDayFromString(_notifRotinaHora),
-      pendingTasksToday,
-    );
+    final pending = pendingTasksToday;
+    if (pending == 0) {
+      await flutterLocalNotificationsPlugin.cancel(0);
+    } else {
+      await agendarNotifRotina(timeOfDayFromString(_notifRotinaHora), pending);
+    }
   }
 
   Future<void> pickRoutineTime() async {
@@ -2990,24 +5063,22 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     setState(() => _notifRotinaHora = value);
     await widget.store.saveNotifRotina(ativo: _notifRotinaAtiva, hora: value);
     if (_notifRotinaAtiva) {
-      await agendarNotifRotina(picked, pendingTasksToday);
+      final pending = pendingTasksToday;
+      if (pending == 0) {
+        await flutterLocalNotificationsPlugin.cancel(0);
+      } else {
+        await agendarNotifRotina(picked, pending);
+      }
     }
   }
 
   Future<void> toggleHabit(Habit habit, bool enabled) async {
-    var hours = _notifHabitoHoras[habit.id] ?? [];
-    if (enabled && hours.isEmpty) {
-      hours = ['08:00'];
-    }
+    if (enabled && !await _ensureNotificationPermission()) return;
+    final hours = _notifHabitoHoras[habit.id] ?? const <String>[];
     setState(() {
       _notifHabitoAtivo[habit.id] = enabled;
-      _notifHabitoHoras[habit.id] = List<String>.from(hours);
     });
     await widget.store.saveNotifHabito(habitoId: habit.id, ativo: enabled);
-    await widget.store.saveNotifHabitoHoras(
-      habitoId: habit.id,
-      horas: _notifHabitoHoras[habit.id]!,
-    );
     if (!enabled) {
       await cancelarNotifsHabito(habit);
       return;
@@ -3015,41 +5086,63 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     await reagendarNotifsHabito(habit, hours);
   }
 
-  Future<void> addHabitTime(Habit habit) async {
-    final currentHours = _notifHabitoHoras[habit.id] ?? [];
-    if (currentHours.length >= 3) return;
-    final initial = currentHours.isEmpty
-        ? const TimeOfDay(hour: 8, minute: 0)
-        : timeOfDayFromString(currentHours.last);
-    final picked = await pickNotificationTime(context, initial);
-    if (picked == null) return;
-    final nextHours = [...currentHours, timeOfDayToString(picked)];
-    setState(() {
-      _notifHabitoHoras[habit.id] = nextHours;
-    });
-    await widget.store.saveNotifHabitoHoras(
-      habitoId: habit.id,
-      horas: nextHours,
+  Future<void> openHabitSettings(Habit habit) async {
+    final result = await showModalBottomSheet<HabitNotificationSettings>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => HabitNotificationBottomSheet(
+        habit: habit,
+        enabled: _notifHabitoAtivo[habit.id] ?? false,
+        hours: _notifHabitoHoras[habit.id] ?? const [],
+      ),
     );
-    if (_notifHabitoAtivo[habit.id] ?? false) {
-      await reagendarNotifsHabito(habit, nextHours);
+    if (result == null) return;
+    if (result.enabled && !await _ensureNotificationPermission()) return;
+
+    final previousEnabled = _notifHabitoAtivo[habit.id] ?? false;
+    final previousHours = List<String>.from(
+      _notifHabitoHoras[habit.id] ?? const [],
+    );
+    setState(() {
+      _notifHabitoAtivo[habit.id] = result.enabled;
+      _notifHabitoHoras[habit.id] = List<String>.from(result.hours);
+    });
+    try {
+      await widget.store.saveNotifHabito(
+        habitoId: habit.id,
+        ativo: result.enabled,
+      );
+      await widget.store.saveNotifHabitoHoras(
+        habitoId: habit.id,
+        horas: result.hours,
+      );
+      if (result.enabled) {
+        await reagendarNotifsHabito(habit, result.hours);
+      } else {
+        await cancelarNotifsHabito(habit);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _notifHabitoAtivo[habit.id] = previousEnabled;
+        _notifHabitoHoras[habit.id] = previousHours;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível salvar. Tente novamente.'),
+        ),
+      );
     }
   }
 
-  Future<void> removeHabitTime(Habit habit, String hour) async {
-    final nextHours = (_notifHabitoHoras[habit.id] ?? [])
-        .where((item) => item != hour)
-        .toList();
-    setState(() {
-      _notifHabitoHoras[habit.id] = nextHours;
-    });
-    await widget.store.saveNotifHabitoHoras(
-      habitoId: habit.id,
-      horas: nextHours,
+  void openReminderManagement() {
+    Navigator.push(
+      context,
+      CupertinoPageRoute(
+        builder: (_) => ReminderManagementPage(store: widget.store),
+      ),
     );
-    if (_notifHabitoAtivo[habit.id] ?? false) {
-      await reagendarNotifsHabito(habit, nextHours);
-    }
   }
 
   @override
@@ -3057,208 +5150,188 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     return DrawerSubPageScaffold(
       title: 'Notificações',
       children: [
-        IosCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              NotificationSectionHeader(
-                title: 'Lembrete de Tarefas',
-                description:
-                    'Receba um aviso diário com suas tarefas pendentes',
-                value: _notifRotinaAtiva,
-                onChanged: toggleRoutine,
-              ),
-              if (_notifRotinaAtiva) ...[
-                const SizedBox(height: 12),
-                NotificationTimeButton(
-                  label: 'Horário',
-                  value: _notifRotinaHora,
-                  onPressed: pickRoutineTime,
-                ),
-              ],
-            ],
-          ),
+        if (_permissionState == NotificationPermissionState.denied) ...[
+          const NotificationPermissionBanner(),
+          const SizedBox(height: 22),
+        ],
+        const NotificationPageSectionTitle(title: 'GERAL'),
+        const SizedBox(height: 8),
+        NotificationGeneralCard(
+          enabled: _notifRotinaAtiva,
+          hour: _notifRotinaHora,
+          onToggle: toggleRoutine,
+          onTimeTap: pickRoutineTime,
         ),
-        const SizedBox(height: 14),
-        Text(
-          'Lembretes por Hábito',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-          ),
+        const SizedBox(height: 28),
+        const NotificationPageSectionTitle(
+          title: 'NOTIFICAÇÕES DE HÁBITOS',
+          subtitle: 'Personalize os avisos de cada hábito.',
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Configure horários individuais para cada hábito',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         if (widget.store.habits.isEmpty)
           IosCard(
             child: Text(
-              'Cadastre hábitos para configurar lembretes.',
+              'Você ainda não possui hábitos para configurar.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
               ),
             ),
           )
         else
-          for (final habit in widget.store.habits) ...[
-            HabitNotificationCard(
-              habit: habit,
-              enabled: _notifHabitoAtivo[habit.id] ?? false,
-              hours: _notifHabitoHoras[habit.id] ?? [],
-              onToggle: (value) => toggleHabit(habit, value),
-              onAddTime: () => addHabitTime(habit),
-              onRemoveTime: (hour) => removeHabitTime(habit, hour),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 10),
-          ],
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                for (
+                  var index = 0;
+                  index < widget.store.habits.length;
+                  index++
+                ) ...[
+                  HabitNotificationTile(
+                    habit: widget.store.habits[index],
+                    enabled:
+                        _notifHabitoAtivo[widget.store.habits[index].id] ??
+                        false,
+                    hours:
+                        _notifHabitoHoras[widget.store.habits[index].id] ??
+                        const [],
+                    onToggle: (value) =>
+                        toggleHabit(widget.store.habits[index], value),
+                    onTap: () => openHabitSettings(widget.store.habits[index]),
+                  ),
+                  if (index < widget.store.habits.length - 1)
+                    Divider(
+                      height: 1,
+                      indent: 16,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.08),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        const SizedBox(height: 28),
+        const NotificationPageSectionTitle(
+          title: 'NOTIFICAÇÕES DE LEMBRETES',
+          subtitle: 'Gerencie os avisos das suas tarefas.',
+        ),
+        const SizedBox(height: 8),
+        NotificationNavigationTile(onTap: openReminderManagement),
       ],
     );
   }
 }
 
-class NotificationSectionHeader extends StatelessWidget {
-  const NotificationSectionHeader({
+enum NotificationPermissionState { checking, authorized, denied, unknown }
+
+class HabitNotificationSettings {
+  const HabitNotificationSettings({required this.enabled, required this.hours});
+
+  final bool enabled;
+  final List<String> hours;
+}
+
+class NotificationPageSectionTitle extends StatelessWidget {
+  const NotificationPageSectionTitle({
     super.key,
     required this.title,
-    required this.description,
-    required this.value,
-    required this.onChanged,
+    this.subtitle,
   });
 
   final String title;
-  final String description;
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                description,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
-                ),
-              ),
-            ],
+        Text(
+          title,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 1.2,
           ),
         ),
-        CupertinoSwitch(
-          value: value,
-          activeTrackColor: iosBlue,
-          onChanged: onChanged,
-        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            subtitle!,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
       ],
     );
   }
 }
 
-class NotificationTimeButton extends StatelessWidget {
-  const NotificationTimeButton({
+class NotificationGeneralCard extends StatelessWidget {
+  const NotificationGeneralCard({
     super.key,
-    required this.label,
-    required this.value,
-    required this.onPressed,
-  });
-
-  final String label;
-  final String value;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(12),
-      onPressed: onPressed,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            value,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class HabitNotificationCard extends StatelessWidget {
-  const HabitNotificationCard({
-    super.key,
-    required this.habit,
     required this.enabled,
-    required this.hours,
+    required this.hour,
     required this.onToggle,
-    required this.onAddTime,
-    required this.onRemoveTime,
+    required this.onTimeTap,
   });
 
-  final Habit habit;
   final bool enabled;
-  final List<String> hours;
+  final String hour;
   final ValueChanged<bool> onToggle;
-  final VoidCallback onAddTime;
-  final ValueChanged<String> onRemoveTime;
+  final VoidCallback onTimeTap;
 
   @override
   Widget build(BuildContext context) {
-    return IosCard(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(habit.icon, style: const TextStyle(fontSize: 24)),
-              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  habit.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Resumo diário',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      enabled
+                          ? 'Receba um aviso das tarefas pendentes às $hour.'
+                          : 'Receba um aviso das tarefas pendentes.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 12),
               CupertinoSwitch(
                 value: enabled,
                 activeTrackColor: iosBlue,
@@ -3268,34 +5341,51 @@ class HabitNotificationCard extends StatelessWidget {
           ),
           if (enabled) ...[
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final hour in hours)
-                  NotificationHourChip(
-                    hour: hour,
-                    onRemove: () => onRemoveTime(hour),
+            Divider(
+              height: 1,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.08),
+            ),
+            CupertinoButton(
+              key: const ValueKey('routine-notification-time'),
+              padding: const EdgeInsets.only(top: 12),
+              minimumSize: const Size(double.infinity, 32),
+              onPressed: onTimeTap,
+              child: Row(
+                children: [
+                  Icon(
+                    CupertinoIcons.clock,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                if (hours.length < 3)
-                  CupertinoButton(
-                    minimumSize: const Size(34, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(17),
-                    onPressed: onAddTime,
-                    child: const Text(
-                      '＋ Adicionar horário',
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Horário',
                       style: TextStyle(
-                        color: iosBlue,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ),
-              ],
+                  Text(
+                    hour,
+                    style: const TextStyle(
+                      color: iosBlue,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    CupertinoIcons.chevron_right,
+                    size: 15,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -3304,8 +5394,273 @@ class HabitNotificationCard extends StatelessWidget {
   }
 }
 
-class NotificationHourChip extends StatelessWidget {
-  const NotificationHourChip({
+class HabitNotificationTile extends StatelessWidget {
+  const HabitNotificationTile({
+    super.key,
+    required this.habit,
+    required this.enabled,
+    required this.hours,
+    required this.onToggle,
+    required this.onTap,
+  });
+
+  final Habit habit;
+  final bool enabled;
+  final List<String> hours;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedHours = List<String>.from(hours)..sort();
+    final status = sortedHours.isEmpty
+        ? 'Nenhum horário configurado'
+        : '${sortedHours.join(', ')} — ${enabled ? 'Ativado' : 'Desativado'}';
+    return Semantics(
+      button: true,
+      label: 'Configurar notificações de ${habit.name}',
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      habit.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      status,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              CupertinoSwitch(
+                value: enabled,
+                activeTrackColor: iosBlue,
+                onChanged: onToggle,
+              ),
+              Icon(
+                CupertinoIcons.chevron_right,
+                size: 15,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class HabitNotificationBottomSheet extends StatefulWidget {
+  const HabitNotificationBottomSheet({
+    super.key,
+    required this.habit,
+    required this.enabled,
+    required this.hours,
+  });
+
+  final Habit habit;
+  final bool enabled;
+  final List<String> hours;
+
+  @override
+  State<HabitNotificationBottomSheet> createState() =>
+      _HabitNotificationBottomSheetState();
+}
+
+class _HabitNotificationBottomSheetState
+    extends State<HabitNotificationBottomSheet> {
+  late bool enabled = widget.enabled;
+  late List<String> hours = List<String>.from(widget.hours)..sort();
+  String? message;
+
+  Future<void> addTime() async {
+    if (hours.length >= 3) {
+      setState(() => message = 'Você pode adicionar até 3 horários.');
+      return;
+    }
+    final initial = hours.isEmpty
+        ? const TimeOfDay(hour: 8, minute: 0)
+        : timeOfDayFromString(hours.last);
+    final picked = await pickNotificationTime(context, initial);
+    if (picked == null) return;
+    final value = timeOfDayToString(picked);
+    if (hours.contains(value)) {
+      setState(() => message = 'Este horário já foi adicionado.');
+      return;
+    }
+    setState(() {
+      hours = [...hours, value]..sort();
+      message = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 10,
+          bottom: 16 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                'Notificações de ${widget.habit.name}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                'Escolha quando deseja receber seus lembretes.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Ativar notificações',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  CupertinoSwitch(
+                    value: enabled,
+                    activeTrackColor: iosBlue,
+                    onChanged: (value) => setState(() => enabled = value),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (hours.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    'Nenhum horário configurado.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                  ),
+                )
+              else
+                for (final hour in hours)
+                  NotificationTimeTile(
+                    hour: hour,
+                    onRemove: () => setState(() {
+                      hours = hours.where((item) => item != hour).toList();
+                      message = null;
+                    }),
+                  ),
+              if (message != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  message!,
+                  style: const TextStyle(color: iosRed, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 12),
+              CupertinoButton(
+                key: const ValueKey('add-habit-notification-time'),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                onPressed: addTime,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(CupertinoIcons.add, size: 18),
+                    SizedBox(width: 6),
+                    Text('Adicionar horário'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton(
+                  key: const ValueKey('save-habit-notifications'),
+                  color: iosBlue,
+                  borderRadius: BorderRadius.circular(12),
+                  onPressed: () => Navigator.pop(
+                    context,
+                    HabitNotificationSettings(enabled: enabled, hours: hours),
+                  ),
+                  child: const Text(
+                    'Concluído',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class NotificationTimeTile extends StatelessWidget {
+  const NotificationTimeTile({
     super.key,
     required this.hour,
     required this.onRemove,
@@ -3317,29 +5672,199 @@ class NotificationHourChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.only(left: 12),
+      constraints: const BoxConstraints(minHeight: 48),
       decoration: BoxDecoration(
-        color: iosBlue.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(18),
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.08),
+          ),
+        ),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            hour,
-            style: const TextStyle(
-              color: iosBlue,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Icon(
+            CupertinoIcons.clock,
+            size: 18,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              hour,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ),
           CupertinoButton(
-            minimumSize: const Size(30, 30),
+            key: ValueKey('remove-notification-time-$hour'),
+            minimumSize: const Size(44, 44),
             padding: EdgeInsets.zero,
             onPressed: onRemove,
-            child: const Icon(CupertinoIcons.xmark, color: iosBlue, size: 14),
+            child: const Icon(
+              CupertinoIcons.xmark_circle,
+              color: iosRed,
+              size: 19,
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class NotificationNavigationTile extends StatelessWidget {
+  const NotificationNavigationTile({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const Icon(
+                CupertinoIcons.checkmark_circle,
+                color: iosBlue,
+                size: 21,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Gerenciar lembretes',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Configure os avisos na lista de lembretes.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                CupertinoIcons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                size: 16,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class NotificationPermissionBanner extends StatelessWidget {
+  const NotificationPermissionBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(CupertinoIcons.bell_slash, color: iosRed, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'As notificações estão desativadas nas configurações do dispositivo.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            minimumSize: const Size(0, 28),
+            onPressed: () =>
+                AppSettings.openAppSettings(type: AppSettingsType.notification),
+            child: const Text(
+              'Abrir configurações',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ReminderManagementPage extends StatelessWidget {
+  const ReminderManagementPage({super.key, required this.store});
+
+  final HabitexStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(w * 0.042, w * 0.04, w * 0.042, 0),
+              child: Row(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.pop(context),
+                    child: Icon(
+                      CupertinoIcons.chevron_left,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: w * 0.061,
+                    ),
+                  ),
+                  SizedBox(width: w * 0.02),
+                  Text(
+                    'Lembretes',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: w * 0.055,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: RotinaPage(store: store, showHeader: false)),
+          ],
+        ),
       ),
     );
   }
@@ -3476,6 +6001,118 @@ int habitNotificationId(String habitId, int hourIndex, String weekdayId) {
   return 1000 + (base * 21) + (hourIndex * 7) + weekdayNumberFromId(weekdayId);
 }
 
+int reminderNotificationId(String reminderId, int slot) {
+  final base = reminderId.hashCode.abs() % 100000;
+  return 2200000 + (base * 8) + slot;
+}
+
+tz.TZDateTime firstReminderOccurrence(
+  DateTime startDate,
+  String weekday,
+  TimeOfDay time,
+) {
+  final now = tz.TZDateTime.now(tz.local);
+  var candidate = tz.TZDateTime(
+    tz.local,
+    startDate.year,
+    startDate.month,
+    startDate.day,
+    time.hour,
+    time.minute,
+  );
+  if (candidate.isBefore(now)) {
+    candidate = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
+    );
+  }
+  final target = weekdayNumberFromId(weekday);
+  while (candidate.weekday != target || !candidate.isAfter(now)) {
+    candidate = candidate.add(const Duration(days: 1));
+  }
+  return candidate;
+}
+
+Future<void> cancelReminderNotifications(RoutineTask reminder) async {
+  for (var slot = 0; slot < 8; slot++) {
+    await flutterLocalNotificationsPlugin.cancel(
+      reminderNotificationId(reminder.id, slot),
+    );
+  }
+}
+
+Future<void> syncReminderNotification(RoutineTask reminder) async {
+  try {
+    await cancelReminderNotifications(reminder);
+    if (!reminder.notificationEnabled ||
+        reminder.notificationTime == null ||
+        reminder.startDate == null) {
+      return;
+    }
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+
+    final time = timeOfDayFromString(reminder.notificationTime!);
+    const details = NotificationDetails(
+      iOS: DarwinNotificationDetails(),
+      android: AndroidNotificationDetails('lembretes', 'Lembretes'),
+    );
+
+    if (!reminder.recurring) {
+      final date = reminder.startDate!;
+      final scheduled = tz.TZDateTime(
+        tz.local,
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+      if (!scheduled.isAfter(tz.TZDateTime.now(tz.local))) return;
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        reminderNotificationId(reminder.id, 0),
+        'HABITEX',
+        reminder.text,
+        scheduled,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return;
+    }
+
+    for (final weekday in reminder.recurrenceDays) {
+      final scheduled = firstReminderOccurrence(
+        reminder.startDate!,
+        weekday,
+        time,
+      );
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        reminderNotificationId(reminder.id, weekdayNumberFromId(weekday)),
+        'HABITEX',
+        reminder.text,
+        scheduled,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
+    }
+  } catch (_) {
+    // O lembrete permanece salvo mesmo quando a permissão é negada.
+  }
+}
+
 Future<void> agendarNotifRotina(TimeOfDay hora, int pendentes) async {
   await flutterLocalNotificationsPlugin.zonedSchedule(
     0,
@@ -3543,12 +6180,19 @@ Future<void> reagendarNotifsHabito(Habit habit, List<String> hours) async {
 Future<void> reagendarNotificacoesSalvas(HabitexStore store) async {
   try {
     if (store.notifRotina) {
-      final tasks = store.tasksByDay[dayId(DateTime.now())] ?? [];
-      final pendingTasks = tasks.where((task) => !task.done).length;
-      await agendarNotifRotina(
-        timeOfDayFromString(store.notifRotinaHora),
-        pendingTasks,
-      );
+      final today = DateTime.now();
+      final pendingTasks = store
+          .tasksForDate(today)
+          .where((task) => !store.isTaskDoneOnDate(task, today))
+          .length;
+      if (pendingTasks == 0) {
+        await flutterLocalNotificationsPlugin.cancel(0);
+      } else {
+        await agendarNotifRotina(
+          timeOfDayFromString(store.notifRotinaHora),
+          pendingTasks,
+        );
+      }
     }
 
     for (final habit in store.habits) {
@@ -3786,7 +6430,7 @@ class _ExportarPageState extends State<ExportarPage> {
           width: double.infinity,
           child: CupertinoButton(
             color: iosBlue,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(HabitexRadii.compact),
             onPressed: _carregando ? null : _exportarCSV,
             child: _carregando
                 ? const CupertinoActivityIndicator(color: Colors.white)
@@ -3833,7 +6477,7 @@ class ExportPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IosCard(
-      borderRadius: 16,
+      borderRadius: HabitexRadii.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4464,13 +7108,9 @@ class _HabitosPageState extends State<HabitosPage> {
   Widget build(BuildContext context) {
     final todayKey = dateKey(DateTime.now());
     final todayProgress = widget.store.habitProgress[todayKey] ?? {};
-    final todayHabits = widget.store.habits.where((habit) {
-      return shouldCountHabitStatDay(
-        habit,
-        DateTime.now(),
-        widget.store.habitProgress,
-      );
-    }).toList();
+    // O resumo desta tela representa todos os hábitos cadastrados e visíveis
+    // abaixo, independentemente da frequência configurada para o calendário.
+    final todayHabits = widget.store.habits;
     final completedToday = todayHabits.where((habit) {
       return isHabitComplete(habit, todayProgress[habit.id] ?? 0);
     }).length;
@@ -4489,7 +7129,7 @@ class _HabitosPageState extends State<HabitosPage> {
                 subtitle: 'Seu ritmo de hoje',
               ),
             ),
-            UserAvatar(profile: widget.store.profile, size: 38),
+            ProfileAvatarButton(profile: widget.store.profile, size: 38),
           ],
         ),
         const SizedBox(height: 24),
@@ -4969,19 +7609,24 @@ class HabitCard extends StatelessWidget {
 
     return IosCard(
       borderRadius: 18,
+      borderColor: complete ? iosGreen.withValues(alpha: 0.55) : null,
+      borderWidth: 1.2,
       child: Row(
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(14),
+          if (habit.icon.trim().isNotEmpty) ...[
+            Container(
+              key: const ValueKey('habit-icon'),
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: Text(habit.icon, style: const TextStyle(fontSize: 24)),
             ),
-            alignment: Alignment.center,
-            child: Text(habit.icon, style: const TextStyle(fontSize: 24)),
-          ),
-          const SizedBox(width: 14),
+            const SizedBox(width: 14),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -5138,7 +7783,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
   void initState() {
     super.initState();
     final habit = widget.habitoParaEditar;
-    iconController = TextEditingController(text: habit?.icon ?? '✨');
+    iconController = TextEditingController(text: habit?.icon ?? '');
     nameController = TextEditingController(text: habit?.name ?? '');
     goalController = TextEditingController(text: (habit?.goal ?? 1).toString());
     unitController = TextEditingController(
@@ -5175,9 +7820,7 @@ class _HabitoFormModalState extends State<HabitoFormModal> {
     if (name.isEmpty) return;
     final habit = Habit(
       id: widget.habitoParaEditar?.id ?? const Uuid().v4(),
-      icon: iconController.text.trim().isEmpty
-          ? '✨'
-          : iconController.text.trim(),
+      icon: iconController.text.trim(),
       name: name,
       type: type,
       goal: int.tryParse(goalController.text) ?? 1,
@@ -5676,34 +8319,47 @@ class HabitexTabBar extends StatelessWidget {
 }
 
 class HabitexHeader extends StatelessWidget {
-  const HabitexHeader({super.key, required this.title, required this.subtitle});
+  const HabitexHeader({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
 
   final String title;
   final String subtitle;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Text(
-          subtitle,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontSize: 13,
-            fontWeight: FontWeight.w400,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 34,
+                  height: 1,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 34,
-            height: 1,
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
+        if (trailing != null) ...[const SizedBox(width: 12), trailing!],
       ],
     );
   }
@@ -5713,15 +8369,19 @@ class IosCard extends StatelessWidget {
   const IosCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.all(HabitexSpacing.md),
     this.color,
-    this.borderRadius = 12,
+    this.borderRadius = HabitexRadii.compact,
+    this.borderColor,
+    this.borderWidth = 1,
   });
 
   final Widget child;
   final EdgeInsets padding;
   final Color? color;
   final double borderRadius;
+  final Color? borderColor;
+  final double borderWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -5730,6 +8390,9 @@ class IosCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(borderRadius),
+        border: borderColor == null
+            ? null
+            : Border.all(color: borderColor!, width: borderWidth),
       ),
       child: child,
     );
@@ -5778,11 +8441,13 @@ class TaskRow extends StatelessWidget {
   const TaskRow({
     super.key,
     required this.task,
+    required this.done,
     required this.onToggle,
     required this.onDelete,
   });
 
   final RoutineTask task;
+  final bool done;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
 
@@ -5810,9 +8475,9 @@ class TaskRow extends StatelessWidget {
                   height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: task.done ? iosBlue : Colors.transparent,
+                    color: done ? iosBlue : Colors.transparent,
                     border: Border.all(
-                      color: task.done
+                      color: done
                           ? iosBlue
                           : Theme.of(
                               context,
@@ -5820,7 +8485,7 @@ class TaskRow extends StatelessWidget {
                       width: 2,
                     ),
                   ),
-                  child: task.done
+                  child: done
                       ? const Icon(
                           CupertinoIcons.check_mark,
                           color: Colors.white,
@@ -5835,17 +8500,44 @@ class TaskRow extends StatelessWidget {
           Expanded(
             child: GestureDetector(
               onTap: onToggle,
-              child: Text(
-                task.text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: task.done
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : Theme.of(context).colorScheme.onSurface,
-                  decoration: task.done ? TextDecoration.lineThrough : null,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    task.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: done
+                          ? Theme.of(context).colorScheme.onSurfaceVariant
+                          : Theme.of(context).colorScheme.onSurface,
+                      decoration: done ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  if (task.description.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      task.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  if (task.taskTime != null || task.recurring) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (task.taskTime != null) task.taskTime!,
+                        if (task.recurring) 'Recorrente',
+                      ].join('  ·  '),
+                      style: const TextStyle(color: iosGray, fontSize: 11),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
@@ -5854,14 +8546,8 @@ class TaskRow extends StatelessWidget {
             child: CupertinoButton(
               minimumSize: const Size(36, 36),
               padding: EdgeInsets.zero,
-              color: iosRedLight,
-              borderRadius: BorderRadius.circular(18),
               onPressed: onDelete,
-              child: const Icon(
-                CupertinoIcons.trash,
-                color: Color(0xFFFF6B63),
-                size: 18,
-              ),
+              child: const Icon(CupertinoIcons.trash, color: iosRed, size: 18),
             ),
           ),
         ],
@@ -6091,6 +8777,17 @@ Map<String, List<RoutineTask>> _decodeTasks(String? value) {
   );
 }
 
+Map<String, Set<String>> _decodeTaskCompletions(String? value) {
+  if (value == null) return {};
+  final decoded = jsonDecode(value) as Map<String, dynamic>;
+  return decoded.map(
+    (key, items) => MapEntry(
+      key,
+      (items as List<dynamic>).map((item) => item as String).toSet(),
+    ),
+  );
+}
+
 List<QuickNote> _decodeNotes(String? value) {
   if (value == null) return [];
   return (jsonDecode(value) as List<dynamic>)
@@ -6198,44 +8895,25 @@ Color habitCalendarDotColor(
 }
 
 HabitConsistency? mostConsistentHabit(HabitexStore store) {
-  if (store.habits.isEmpty) return null;
-
-  final results = [
-    for (final habit in store.habits)
-      HabitConsistency(
-        habit: habit,
-        scheduledDays: diasRelevantesNaSemana(habit, store.habitProgress),
-        completedDays: calcStreakPorHabito(habit, store.habitProgress),
-      ),
-  ];
-  results.sort((a, b) => b.completedDays.compareTo(a.completedDays));
-  return results.first;
+  return statisticsSnapshot(store, 7).mostConsistent;
 }
 
-bool shouldCountHabitStatDay(
-  Habit habit,
-  DateTime date,
-  Map<String, Map<String, int>> habitProgress,
-) {
-  final value = habitProgress[dateKey(date)]?[habit.id] ?? 0;
-  return habit.frequency.contains(dayId(date)) || value > 0;
+List<DateTime> statisticsDates(int periodDays, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  return List.generate(
+    periodDays,
+    (index) => today.subtract(Duration(days: periodDays - 1 - index)),
+  );
 }
 
 int diasRelevantesNaSemana(
   Habit habit,
   Map<String, Map<String, int>> habitProgress,
 ) {
-  var count = 0;
-  for (var index = 0; index < 7; index++) {
-    final date = DateTime.now().subtract(Duration(days: index));
-    final weekday = dayId(date);
-    final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
-    final scheduled = habit.frequency.contains(weekday);
-    final hasProgress = value > 0;
-
-    if (scheduled || hasProgress) count++;
-  }
-  return count;
+  return statisticsDates(
+    7,
+  ).where((date) => habit.frequency.contains(dayId(date))).length;
 }
 
 int diasAgendadosNaSemana(Habit habit) {
@@ -6251,23 +8929,20 @@ int calcStreakPorHabito(
   Habit habit,
   Map<String, Map<String, int>> habitProgress,
 ) {
-  var streak = 0;
-  var day = DateTime.now();
-  for (var index = 0; index < 7; index++) {
-    final key = dateKey(day);
-    final weekday = dayId(day);
-    final value = habitProgress[key]?[habit.id] ?? 0;
-    final scheduled = habit.frequency.contains(weekday);
-    final complete = isHabitComplete(habit, value);
+  return habitStreakForDates(habit, habitProgress, statisticsDates(7));
+}
 
-    if (complete) {
-      streak += 1;
-      day = day.subtract(const Duration(days: 1));
-    } else if (!scheduled) {
-      day = day.subtract(const Duration(days: 1));
-    } else {
-      break;
-    }
+int habitStreakForDates(
+  Habit habit,
+  Map<String, Map<String, int>> habitProgress,
+  List<DateTime> dates,
+) {
+  var streak = 0;
+  for (final date in dates.reversed) {
+    if (!habit.frequency.contains(dayId(date))) continue;
+    final value = habitProgress[dateKey(date)]?[habit.id] ?? 0;
+    if (!isHabitComplete(habit, value)) break;
+    streak++;
   }
   return streak;
 }
@@ -6285,20 +8960,12 @@ List<HabitStreak> habitStreaks(HabitexStore store) {
 }
 
 List<DailyCompletionRate> habitDailyCompletionRates(HabitexStore store) {
-  return [
-    for (final date in last7Dates())
-      DailyCompletionRate(
-        date: date,
-        percent: dailyHabitCompletionPercent(store, date),
-      ),
-  ];
+  return dailyCompletionRatesForDates(store, statisticsDates(7));
 }
 
 double dailyHabitCompletionPercent(HabitexStore store, DateTime date) {
   final habitsForDay = store.habits
-      .where(
-        (habit) => shouldCountHabitStatDay(habit, date, store.habitProgress),
-      )
+      .where((habit) => habit.frequency.contains(dayId(date)))
       .toList();
   if (habitsForDay.isEmpty) return 0;
 
@@ -6310,14 +8977,36 @@ double dailyHabitCompletionPercent(HabitexStore store, DateTime date) {
   return (completed / habitsForDay.length) * 100;
 }
 
+List<DailyCompletionRate> dailyCompletionRatesForDates(
+  HabitexStore store,
+  List<DateTime> dates,
+) {
+  return [for (final date in dates) _dailyCompletionRateForDate(store, date)];
+}
+
+DailyCompletionRate _dailyCompletionRateForDate(
+  HabitexStore store,
+  DateTime date,
+) {
+  final scheduledHabits = store.habits
+      .where((habit) => habit.frequency.contains(dayId(date)))
+      .toList();
+  final progress = store.habitProgress[dateKey(date)] ?? {};
+  final completed = scheduledHabits.where((habit) {
+    return isHabitComplete(habit, progress[habit.id] ?? 0);
+  }).length;
+  return DailyCompletionRate(
+    date: date,
+    scheduled: scheduledHabits.length,
+    completed: completed,
+    percent: scheduledHabits.isEmpty
+        ? 0
+        : (completed / scheduledHabits.length) * 100,
+  );
+}
+
 List<HabitCompletionRate> habitCompletionRates(HabitexStore store) {
-  final dates = last7Dates();
-  final rates = [
-    for (final habit in store.habits)
-      habitCompletionRateForDates(store, habit, dates),
-  ];
-  rates.sort((a, b) => b.percent.compareTo(a.percent));
-  return rates;
+  return habitCompletionRatesForDates(store, statisticsDates(7));
 }
 
 double calcPercentualHabito(
@@ -6327,7 +9016,7 @@ double calcPercentualHabito(
   return _habitCompletionRateForDates(
     habit,
     habitProgress,
-    last7Dates(),
+    statisticsDates(7),
   ).percent;
 }
 
@@ -6341,7 +9030,9 @@ HabitCompletionRate _habitCompletionRateForDates(
 
   for (final date in dates) {
     final value = (habitProgress[dateKey(date)] ?? {})[habit.id] ?? 0;
-    if (habit.frequency.contains(dayId(date))) scheduledDays++;
+    final scheduled = habit.frequency.contains(dayId(date));
+    if (!scheduled) continue;
+    scheduledDays++;
     if (isHabitComplete(habit, value)) completedDays++;
   }
 
@@ -6363,6 +9054,96 @@ HabitCompletionRate habitCompletionRateForDates(
   List<DateTime> dates,
 ) {
   return _habitCompletionRateForDates(habit, store.habitProgress, dates);
+}
+
+List<HabitCompletionRate> habitCompletionRatesForDates(
+  HabitexStore store,
+  List<DateTime> dates,
+) {
+  final rates = [
+    for (final habit in store.habits)
+      _habitCompletionRateForDates(habit, store.habitProgress, dates),
+  ].where((rate) => rate.scheduledDays > 0).toList();
+  rates.sort((left, right) {
+    final byPercent = right.percent.compareTo(left.percent);
+    if (byPercent != 0) return byPercent;
+    final byCompleted = right.completedDays.compareTo(left.completedDays);
+    if (byCompleted != 0) return byCompleted;
+    return left.habit.name.toLowerCase().compareTo(
+      right.habit.name.toLowerCase(),
+    );
+  });
+  return rates;
+}
+
+StatisticsSnapshot statisticsSnapshot(
+  HabitexStore store,
+  int periodDays, {
+  DateTime? now,
+}) {
+  final dates = statisticsDates(periodDays, now: now);
+  final dailyRates = dailyCompletionRatesForDates(store, dates);
+  final habitRates = habitCompletionRatesForDates(store, dates);
+  final performances = [
+    for (final rate in habitRates)
+      StatisticsHabitPerformance(
+        rate: rate,
+        streak: habitStreakForDates(rate.habit, store.habitProgress, dates),
+      ),
+  ];
+  performances.sort((left, right) {
+    final byPercent = right.rate.percent.compareTo(left.rate.percent);
+    if (byPercent != 0) return byPercent;
+    final byStreak = right.streak.compareTo(left.streak);
+    if (byStreak != 0) return byStreak;
+    return left.rate.habit.name.toLowerCase().compareTo(
+      right.rate.habit.name.toLowerCase(),
+    );
+  });
+
+  final totalScheduled = dailyRates.fold<int>(
+    0,
+    (total, rate) => total + rate.scheduled,
+  );
+  final totalCompleted = dailyRates.fold<int>(
+    0,
+    (total, rate) => total + rate.completed,
+  );
+  final best = performances.isEmpty ? null : performances.first.rate;
+
+  return StatisticsSnapshot(
+    dailyRates: dailyRates,
+    habitRates: habitRates,
+    ranking: performances,
+    mostConsistent: best == null
+        ? null
+        : HabitConsistency(
+            habit: best.habit,
+            completedDays: best.completedDays,
+            scheduledDays: best.scheduledDays,
+          ),
+    completionPercent: totalScheduled == 0
+        ? 0
+        : totalCompleted / totalScheduled,
+    maxStreak: performances.fold<int>(
+      0,
+      (best, performance) =>
+          performance.streak > best ? performance.streak : best,
+    ),
+  );
+}
+
+bool showStatisticsXAxisLabel(int index, int total) {
+  if (total <= 7) return true;
+  final interval = total <= 30 ? 6 : 18;
+  return index == 0 || index == total - 1 || index % interval == 0;
+}
+
+String statisticsXAxisLabel(DateTime date, int periodDays) {
+  if (periodDays <= 7) {
+    return const ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'][date.weekday - 1];
+  }
+  return formatShortDate(date);
 }
 
 Color corDoPercentual(double percentual) {

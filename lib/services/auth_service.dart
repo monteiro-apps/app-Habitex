@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // v0: autenticação simulada com shared_preferences (sem banco de dados)
@@ -8,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AuthService {
   static const _keyEmail = 'habitex.auth.email';
   static const _keySenha = 'habitex.auth.senha';
+  static const _keySenhaSalt = 'habitex.auth.senhaSalt';
   static const _keyApelido = 'habitex.auth.apelido';
   static const _keyLogado = 'habitex.auth.logado';
 
@@ -47,9 +50,9 @@ class AuthService {
 
       await prefs.setString(_keyApelido, apelido.trim());
       await prefs.setString(_keyEmail, emailNormalizado);
-      // v0: senha em texto puro apenas para protótipo local/offline.
-      // v1: não salvar senha; Firebase Auth gerencia credenciais com segurança.
-      await prefs.setString(_keySenha, senha);
+      // v0: mantém apenas hash com salt da credencial local do protótipo.
+      // v1: remover estas chaves; Firebase Auth gerencia a credencial.
+      await _savePasswordHash(prefs, senha);
       await prefs.setBool(_keyLogado, true);
       await _syncProfilePrefs(
         prefs: prefs,
@@ -79,10 +82,10 @@ class AuthService {
 
       final prefs = await SharedPreferences.getInstance();
       final emailSalvo = prefs.getString(_keyEmail) ?? '';
-      final senhaSalva = prefs.getString(_keySenha) ?? '';
       final apelido = prefs.getString(_keyApelido) ?? '';
 
-      if (email.trim().toLowerCase() != emailSalvo || senha != senhaSalva) {
+      if (email.trim().toLowerCase() != emailSalvo ||
+          !await _passwordMatches(prefs, senha)) {
         return AuthResult.erro('E-mail ou senha incorretos.');
       }
 
@@ -131,6 +134,61 @@ class AuthService {
     );
   }
 
+  // v0: atualiza apelido/e-mail da identidade local e espelha no perfil.
+  // v1: substituir por → FirebaseAuth.currentUser.updateEmail(...)
+  //                       + atualização do perfil no Firestore.
+  Future<AuthResult> atualizarPerfil({
+    required String apelido,
+    required String email,
+  }) async {
+    final nickname = apelido.trim();
+    final normalizedEmail = email.trim().toLowerCase();
+    if (nickname.isEmpty) return AuthResult.erro('Informe um apelido.');
+    if (!normalizedEmail.contains('@') || !normalizedEmail.contains('.')) {
+      return AuthResult.erro('Informe um e-mail válido.');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyApelido, nickname);
+      await prefs.setString(_keyEmail, normalizedEmail);
+      await _syncProfilePrefs(
+        prefs: prefs,
+        apelido: nickname,
+        email: normalizedEmail,
+      );
+      return AuthResult.sucesso(apelido: nickname, email: normalizedEmail);
+    } catch (_) {
+      return AuthResult.erro('Não foi possível atualizar o perfil.');
+    }
+  }
+
+  // v0: valida a credencial local atual e substitui pela nova senha.
+  // v1: substituir por → reautenticar usuário + updatePassword(...).
+  Future<AuthResult> alterarSenha({
+    required String senhaAtual,
+    required String novaSenha,
+  }) async {
+    if (senhaAtual.isEmpty) return AuthResult.erro('Informe a senha atual.');
+    if (novaSenha.length < 6) {
+      return AuthResult.erro('A nova senha deve ter no mínimo 6 caracteres.');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await _passwordMatches(prefs, senhaAtual)) {
+        return AuthResult.erro('Senha atual incorreta.');
+      }
+      // v0: substitui somente o hash local com um salt novo.
+      // v1: substituir por → FirebaseAuth.currentUser.updatePassword(...).
+      await _savePasswordHash(prefs, novaSenha);
+      return AuthResult.sucesso(
+        apelido: prefs.getString(_keyApelido) ?? '',
+        email: prefs.getString(_keyEmail) ?? '',
+      );
+    } catch (_) {
+      return AuthResult.erro('Não foi possível alterar a senha.');
+    }
+  }
+
   // v0: espelha os dados de auth nas chaves de perfil usadas pela UI atual.
   // v1: substituir por → leitura do perfil do Firestore após autenticação.
   Future<void> _syncProfilePrefs({
@@ -144,6 +202,38 @@ class AuthService {
       'habitex.profile',
       jsonEncode({'nickname': apelido, 'email': email}),
     );
+  }
+
+  Future<void> _savePasswordHash(
+    SharedPreferences prefs,
+    String password,
+  ) async {
+    final random = Random.secure();
+    final salt = base64UrlEncode(
+      List<int>.generate(24, (_) => random.nextInt(256)),
+    );
+    await prefs.setString(_keySenhaSalt, salt);
+    await prefs.setString(_keySenha, _hashPassword(password, salt));
+  }
+
+  Future<bool> _passwordMatches(
+    SharedPreferences prefs,
+    String password,
+  ) async {
+    final saved = prefs.getString(_keySenha) ?? '';
+    final salt = prefs.getString(_keySenhaSalt);
+    if (salt != null && salt.isNotEmpty) {
+      return saved == _hashPassword(password, salt);
+    }
+
+    // Migração de contas criadas antes do armazenamento com hash.
+    if (saved != password) return false;
+    await _savePasswordHash(prefs, password);
+    return true;
+  }
+
+  String _hashPassword(String password, String salt) {
+    return sha256.convert(utf8.encode('$salt:$password')).toString();
   }
 }
 
