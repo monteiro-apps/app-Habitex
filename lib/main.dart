@@ -2705,12 +2705,17 @@ class _DadosGeraisMenuState extends State<DadosGeraisMenu> {
 
   HabitexStore get store => widget.store;
 
-  void openPage(BuildContext context, Widget page) {
+  Future<void> openPage(BuildContext context, Widget page) async {
     if (navigating) return;
     navigating = true;
     final navigator = Navigator.of(context, rootNavigator: true);
-    Scaffold.of(context).closeEndDrawer();
-    navigator.push(CupertinoPageRoute<void>(builder: (_) => page));
+    try {
+      // Keep the drawer route below the subpage so back navigation restores
+      // the menu that originated this flow instead of jumping to the home tab.
+      await navigator.push(CupertinoPageRoute<void>(builder: (_) => page));
+    } finally {
+      if (mounted) navigating = false;
+    }
   }
 
   Future<void> syncAuthenticatedUser() async {
@@ -7060,8 +7065,9 @@ class _HabitosPageState extends State<HabitosPage> {
 
   @override
   Widget build(BuildContext context) {
-    final todayKey = dateKey(DateTime.now());
-    final todayProgress = widget.store.habitProgress[todayKey] ?? {};
+    final selectedDate = DateTime.now();
+    final selectedDateKey = dateKey(selectedDate);
+    final todayProgress = widget.store.habitProgress[selectedDateKey] ?? {};
     // O resumo desta tela representa todos os hábitos cadastrados e visíveis
     // abaixo, independentemente da frequência configurada para o calendário.
     final todayHabits = widget.store.habits;
@@ -7169,6 +7175,7 @@ class _HabitosPageState extends State<HabitosPage> {
                   _abrirModalHabito(context, habitoParaEditar: habit),
               child: HabitCard(
                 habit: habit,
+                selectedDate: selectedDate,
                 value: todayProgress[habit.id] ?? 0,
                 onEdit: () =>
                     _abrirModalHabito(context, habitoParaEditar: habit),
@@ -7547,12 +7554,14 @@ class HabitCard extends StatelessWidget {
   const HabitCard({
     super.key,
     required this.habit,
+    required this.selectedDate,
     required this.value,
     required this.onEdit,
     required this.onChange,
   });
 
   final Habit habit;
+  final DateTime selectedDate;
   final int value;
   final VoidCallback onEdit;
   final ValueChanged<int> onChange;
@@ -7560,10 +7569,16 @@ class HabitCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final complete = isHabitComplete(habit, value);
+    final scheduled = habit.frequency.contains(dayId(selectedDate));
+    final borderColor = !scheduled
+        ? null
+        : complete
+        ? iosGreen.withValues(alpha: 0.55)
+        : iosRed.withValues(alpha: 0.55);
 
     return IosCard(
       borderRadius: 18,
-      borderColor: complete ? iosGreen.withValues(alpha: 0.55) : null,
+      borderColor: borderColor,
       borderWidth: 1.2,
       child: Row(
         children: [

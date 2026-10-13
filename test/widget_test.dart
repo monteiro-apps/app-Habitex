@@ -997,7 +997,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Habitex highlights only completed habit cards', (tester) async {
+  testWidgets('Habitex colors habit card borders by schedule and completion', (
+    tester,
+  ) async {
     const habit = Habit(
       id: 'leitura',
       icon: '📖',
@@ -1009,13 +1011,17 @@ void main() {
       frequency: ['seg'],
     );
 
-    Future<void> pumpCard(int value) async {
+    final scheduledDate = DateTime(2026, 10, 12);
+    final unscheduledDate = scheduledDate.add(const Duration(days: 1));
+
+    Future<void> pumpCard({required DateTime date, required int value}) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: ThemeData.dark(),
           home: Scaffold(
             body: HabitCard(
               habit: habit,
+              selectedDate: date,
               value: value,
               onEdit: () {},
               onChange: (_) {},
@@ -1025,10 +1031,19 @@ void main() {
       );
     }
 
-    await pumpCard(10);
-    expect(tester.widget<IosCard>(find.byType(IosCard)).borderColor, isNotNull);
+    await pumpCard(date: scheduledDate, value: 10);
+    expect(
+      tester.widget<IosCard>(find.byType(IosCard)).borderColor,
+      iosGreen.withValues(alpha: 0.55),
+    );
 
-    await pumpCard(0);
+    await pumpCard(date: scheduledDate, value: 0);
+    expect(
+      tester.widget<IosCard>(find.byType(IosCard)).borderColor,
+      iosRed.withValues(alpha: 0.55),
+    );
+
+    await pumpCard(date: unscheduledDate, value: 10);
     expect(tester.widget<IosCard>(find.byType(IosCard)).borderColor, isNull);
   });
 
@@ -1052,6 +1067,7 @@ void main() {
         home: Scaffold(
           body: HabitCard(
             habit: habit,
+            selectedDate: DateTime(2026, 10, 12),
             value: 0,
             onEdit: () {},
             onChange: (_) {},
@@ -1188,23 +1204,27 @@ void main() {
       ('Notificações', 'full-page-Notificações'),
       ('Exportar dados', 'full-page-Exportar Dados'),
     ];
+    await tester.tap(find.byKey(const ValueKey('open-profile-sidebar')));
+    await tester.pumpAndSettle();
+
     for (final destination in destinations) {
-      await tester.tap(find.byKey(const ValueKey('open-profile-sidebar')));
-      await tester.pumpAndSettle();
       await tester.tap(find.text(destination.$1));
       await tester.pumpAndSettle();
       expect(find.byKey(ValueKey(destination.$2)), findsOneWidget);
       await tester.tap(find.byIcon(CupertinoIcons.chevron_left).first);
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('habitex-sidebar')), findsOneWidget);
     }
 
-    await tester.tap(find.byKey(const ValueKey('open-profile-sidebar')));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Habitex Premium'));
     await tester.pumpAndSettle();
     expect(find.text('Habitex Premium'), findsOneWidget);
     expect(find.text('PLANO ANUAL'), findsOneWidget);
     expect(find.text('Continuar com anual'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('habitex-sidebar')), findsOneWidget);
   });
 
   testWidgets('Sidebar asks before logout and keeps local user data', (
