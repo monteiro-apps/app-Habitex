@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habitex/main.dart';
 import 'package:habitex/services/auth_service.dart';
+import 'package:habitex/theme/habitex_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -1201,7 +1202,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Habitex Premium'));
     await tester.pumpAndSettle();
-    expect(find.text('HABITEX PREMIUM'), findsOneWidget);
+    expect(find.text('Habitex Premium'), findsOneWidget);
+    expect(find.text('PLANO ANUAL'), findsOneWidget);
+    expect(find.text('Continuar com anual'), findsOneWidget);
   });
 
   testWidgets('Sidebar asks before logout and keeps local user data', (
@@ -1499,4 +1502,32 @@ void main() {
     expect(find.text('Lembretes'), findsOneWidget);
     expect(find.byKey(const ValueKey('new-reminder-button')), findsOneWidget);
   });
+
+  testWidgets(
+    'Premium keeps plan selection local while purchases are unavailable',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(theme: habitexDarkTheme(), home: const AssinaturaPage()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('R\$ 47,90'), findsOneWidget);
+      expect(find.text('R\$ 4,90'), findsOneWidget);
+      expect(find.text('Economize 18,5%'), findsOneWidget);
+      expect(find.text('Notas ilimitadas'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('premium-subscribe-unavailable')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('premium-restore-unavailable')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('premium-plan-PLANO MENSAL')));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

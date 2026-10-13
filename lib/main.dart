@@ -6562,162 +6562,111 @@ class _AssinaturaPageState extends State<AssinaturaPage> {
     setState(() => planoSelecionado = plano);
   }
 
-  void _assinar() {
-    // TODO: integrar com in_app_purchase ou RevenueCat na v1
-
-    // v0: exibir dialog de confirmação simulada
-    showCupertinoDialog<void>(
-      context: context,
-      builder: (_) => CupertinoAlertDialog(
-        title: const Text('Em breve! 🚀'),
-        content: const Text(
-          'As assinaturas estarão disponíveis na próxima versão do HABITEX. '
-          'Obrigado pelo seu interesse!',
-        ),
-        actions: [
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  const SizedBox(height: 60),
-                  const Text(
-                    '✨',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 52),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'HABITEX PREMIUM',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: iosBlue,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 2,
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(44, 44),
+                    onPressed: () => Navigator.pop(context),
+                    child: Icon(
+                      CupertinoIcons.chevron_left,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Invista em você. É o melhor investimento.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: iosGray,
-                      fontSize: 15,
-                      fontStyle: FontStyle.italic,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  _PremiumPlansSelector(
-                    planoSelecionado: planoSelecionado,
-                    onChanged: selecionarPlano,
-                  ),
-                  const SizedBox(height: 16),
-                  const SizedBox(height: 32),
-                  Text(
-                    'O que está incluído',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _PremiumBenefitsCard(),
-                  const SizedBox(height: 16),
-                  _PremiumTestimonialCard(),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: double.infinity,
-                    child: CupertinoButton(
-                      color: iosBlue,
-                      borderRadius: BorderRadius.circular(14),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      onPressed: _assinar,
-                      child: Text(
-                        planoSelecionado == 'anual'
-                            ? 'Começar por R\$ 47,90/ano'
-                            : 'Começar por R\$ 4,90/mês',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 16,
-                        ),
+                  const SizedBox(width: 8),
+                  const Icon(CupertinoIcons.sparkles, color: iosBlue, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Habitex Premium',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    '✓  Cancele quando quiser  ·  Sem compromisso',
-                    style: TextStyle(fontSize: 12, color: iosGray),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          // TODO: abrir termos
-                        },
-                        child: const Text(
-                          'Termos de Uso',
-                          style: TextStyle(fontSize: 11, color: iosBlue),
-                        ),
-                      ),
-                      const Text(
-                        '  ·  ',
-                        style: TextStyle(fontSize: 11, color: iosGray),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          // TODO: abrir política
-                        },
-                        child: const Text(
-                          'Política de Privacidade',
-                          style: TextStyle(fontSize: 11, color: iosBlue),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 40),
                 ],
               ),
-            ),
-            Positioned(
-              top: 8,
-              right: 0,
-              child: CupertinoButton(
-                padding: const EdgeInsets.all(10),
-                onPressed: () => Navigator.pop(context),
-                child: Icon(
-                  CupertinoIcons.xmark_circle_fill,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                  size: 30,
+              const SizedBox(height: 28),
+              Text(
+                'Mais recursos, quando estiver pronto para você.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 24,
+                  height: 1.15,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'As assinaturas serão disponibilizadas após a configuração da loja.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 28),
+              const _PremiumSectionTitle('ESCOLHA SEU PLANO'),
+              const SizedBox(height: 8),
+              _PremiumPlansSelector(
+                planoSelecionado: planoSelecionado,
+                onChanged: selecionarPlano,
+              ),
+              const SizedBox(height: 28),
+              const _PremiumSectionTitle('O QUE ESTÁ INCLUÍDO'),
+              const SizedBox(height: 8),
+              _PremiumBenefitsCard(),
+              const SizedBox(height: 28),
+              CupertinoButton(
+                key: const ValueKey('premium-subscribe-unavailable'),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(HabitexRadii.compact),
+                onPressed: null,
+                child: Text(
+                  'Continuar com ${planoSelecionado == 'anual' ? 'anual' : 'mensal'}',
+                  style: TextStyle(
+                    color: iosGray,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Center(
+                child: CupertinoButton(
+                  key: const ValueKey('premium-restore-unavailable'),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  onPressed: null,
+                  child: const Text(
+                    'Restaurar compras indisponível',
+                    style: TextStyle(color: iosGray, fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Protótipo visual: o botão não realiza uma assinatura.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -6735,32 +6684,24 @@ class _PremiumPlansSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () => onChanged('mensal'),
-            child: _PremiumPlanCard(
-              titulo: 'MENSAL',
-              preco: 'R\$ 4,90',
-              subtitulo: 'por mês',
-              selecionado: planoSelecionado == 'mensal',
-            ),
-          ),
+        _PremiumPlanCard(
+          titulo: 'PLANO ANUAL',
+          preco: 'R\$ 47,90',
+          subtitulo: 'por ano',
+          destaque: 'Economize 18,5%',
+          tag: 'Mais popular',
+          selecionado: planoSelecionado == 'anual',
+          onTap: () => onChanged('anual'),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: GestureDetector(
-            onTap: () => onChanged('anual'),
-            child: _PremiumPlanCard(
-              titulo: 'ANUAL',
-              preco: 'R\$ 47,90',
-              subtitulo: 'por ano',
-              destaque: 'Economize 19%',
-              tag: 'MAIS POPULAR',
-              selecionado: planoSelecionado == 'anual',
-            ),
-          ),
+        const SizedBox(height: 10),
+        _PremiumPlanCard(
+          titulo: 'PLANO MENSAL',
+          preco: 'R\$ 4,90',
+          subtitulo: 'por mês',
+          selecionado: planoSelecionado == 'mensal',
+          onTap: () => onChanged('mensal'),
         ),
       ],
     );
@@ -6772,104 +6713,164 @@ class _PremiumPlanCard extends StatelessWidget {
     required this.titulo,
     required this.preco,
     required this.subtitulo,
-    required this.selecionado,
     this.destaque,
     this.tag,
+    required this.selecionado,
+    required this.onTap,
   });
 
   final String titulo;
   final String preco;
   final String subtitulo;
-  final bool selecionado;
   final String? destaque;
   final String? tag;
+  final bool selecionado;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
+    return Semantics(
+      key: ValueKey('premium-plan-$titulo'),
+      button: true,
+      selected: selecionado,
+      label: titulo,
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: onTap,
+        borderRadius: BorderRadius.circular(HabitexRadii.card),
+        child: Container(
           width: double.infinity,
-          padding: EdgeInsets.all(width * 0.04),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: selecionado
-                ? iosBlue.withValues(alpha: 0.06)
+                ? iosBlue.withValues(alpha: 0.10)
                 : Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(HabitexRadii.card),
             border: Border.all(
               color: selecionado
                   ? iosBlue
                   : Theme.of(
                       context,
                     ).colorScheme.onSurface.withValues(alpha: 0.12),
-              width: selecionado ? 2 : 1.5,
+              width: selecionado ? 1.5 : 1,
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (tag != null) SizedBox(height: width * 0.04),
-              Text(
-                titulo,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: selecionado ? iosBlue : iosGray,
-                  letterSpacing: 1,
-                ),
-              ),
-              SizedBox(height: width * 0.02),
-              Text(
-                preco,
-                style: TextStyle(
-                  fontSize: width * 0.055,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
-              Text(
-                subtitulo,
-                style: const TextStyle(fontSize: 12, color: iosGray),
-              ),
-              if (destaque != null) ...[
-                SizedBox(height: width * 0.015),
-                Text(
-                  destaque!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: iosGreen,
-                    fontWeight: FontWeight.w600,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      titulo,
+                      style: TextStyle(
+                        color: selecionado
+                            ? iosBlue
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  if (tag != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(HabitexRadii.pill),
+                      ),
+                      child: Text(
+                        tag!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          preco,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 26,
+                            height: 1,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          subtitulo,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (destaque != null) ...[
+                          const SizedBox(height: 7),
+                          Text(
+                            destaque!,
+                            style: const TextStyle(
+                              color: iosGreen,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    selecionado
+                        ? CupertinoIcons.check_mark_circled_solid
+                        : CupertinoIcons.circle,
+                    color: selecionado
+                        ? iosBlue
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 22,
+                  ),
+                ],
+              ),
             ],
           ),
         ),
-        if (tag != null)
-          Positioned(
-            top: -10,
-            left: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: iosBlue,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                tag!,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-          ),
-      ],
+      ),
+    );
+  }
+}
+
+class _PremiumSectionTitle extends StatelessWidget {
+  const _PremiumSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontSize: 12,
+        letterSpacing: 1.1,
+        fontWeight: FontWeight.w500,
+      ),
     );
   }
 }
@@ -6877,23 +6878,31 @@ class _PremiumPlanCard extends StatelessWidget {
 class _PremiumBenefitsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    const beneficios = [
+    const beneficios = <(IconData, String, String)>[
       (
-        '🔔',
-        'Notificações ilimitadas',
-        'Lembretes personalizados para cada hábito',
+        CupertinoIcons.bell,
+        'Notificações locais',
+        'Lembretes para tarefas e hábitos',
       ),
-      ('📊', 'Estatísticas avançadas', 'Acompanhe sua evolução com detalhes'),
       (
-        '📥',
+        CupertinoIcons.chart_bar,
+        'Estatísticas',
+        'Acompanhe sua evolução no Habitex',
+      ),
+      (
+        CupertinoIcons.arrow_down_doc,
         'Exportação de dados',
-        'Baixe seu histórico em CSV a qualquer momento',
+        'Gere um arquivo CSV do seu histórico',
       ),
-      ('⭐', 'Sem anúncios', 'Experiência limpa, sem interrupções'),
-      ('💬', 'Suporte prioritário', 'Atendimento direto para assinantes'),
+      (
+        CupertinoIcons.doc_text,
+        'Notas ilimitadas',
+        'Registre suas ideias e lembretes sem limite',
+      ),
     ];
 
     return IosCard(
+      borderRadius: HabitexRadii.card,
       child: Column(
         children: [
           for (var index = 0; index < beneficios.length; index++) ...[
@@ -6917,7 +6926,7 @@ class _PremiumBenefitRow extends StatelessWidget {
     required this.subtitle,
   });
 
-  final String icon;
+  final IconData icon;
   final String title;
   final String subtitle;
 
@@ -6926,16 +6935,7 @@ class _PremiumBenefitRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iosGreen.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          alignment: Alignment.center,
-          child: Text(icon, style: const TextStyle(fontSize: 16)),
-        ),
+        Icon(icon, color: iosBlue, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -6946,7 +6946,7 @@ class _PremiumBenefitRow extends StatelessWidget {
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 3),
@@ -6956,12 +6956,6 @@ class _PremiumBenefitRow extends StatelessWidget {
               ),
             ],
           ),
-        ),
-        const SizedBox(width: 8),
-        const Icon(
-          CupertinoIcons.checkmark_circle_fill,
-          color: iosGreen,
-          size: 18,
         ),
       ],
     );
@@ -6978,46 +6972,6 @@ class _PremiumBenefitDivider extends StatelessWidget {
       child: Divider(
         height: 1,
         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
-      ),
-    );
-  }
-}
-
-class _PremiumTestimonialCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: List.generate(
-              5,
-              (_) => const Text('⭐', style: TextStyle(fontSize: 14)),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '"Finalmente um app que reúne tudo que preciso. '
-            'Minha rotina mudou completamente."',
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurface,
-              fontStyle: FontStyle.italic,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '— Ana P., usuária Premium',
-            style: TextStyle(fontSize: 12, color: iosGray),
-          ),
-        ],
       ),
     );
   }
