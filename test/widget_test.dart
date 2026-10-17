@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habitex/main.dart';
+import 'package:habitex/pages/login_page.dart';
+import 'package:habitex/pages/splash_page.dart';
 import 'package:habitex/services/auth_service.dart';
 import 'package:habitex/theme/habitex_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -219,6 +221,122 @@ void main() {
     expect(store.tasksByDay[selectedDays.last], hasLength(1));
     expect(store.tasksByDay[selectedDays.first]!.single.id, 'treino');
     expect(store.tasksByDay[selectedDays.last]!.single.id, 'treino');
+  });
+
+  group('Regras de lembretes', () {
+    // Semana de seg 12/10/2026 a dom 18/10/2026.
+    final quarta = DateTime(2026, 10, 14);
+    final sabado = DateTime(2026, 10, 17);
+    final domingo = DateTime(2026, 10, 18);
+    final segundaSeguinte = DateTime(2026, 10, 19);
+
+    test(
+      'tarefa rápida em sábado cria lembrete único, sem recorrência',
+      () async {
+        final store = HabitexStore(onChanged: () {});
+
+        await store.addTask('Mercado', sabado);
+
+        final task = store.tasksForDate(sabado).single;
+        expect(task.text, 'Mercado');
+        expect(task.recurring, isFalse);
+        expect(task.recurrenceDays, isEmpty);
+        expect(task.startDate, sabado);
+        expect(store.tasksByDay['sab'], hasLength(1));
+      },
+    );
+
+    test('lembrete único aparece só no dia em que foi criado', () async {
+      final store = HabitexStore(onChanged: () {});
+
+      await store.addTask('Dentista', quarta);
+
+      expect(store.tasksForDate(quarta), hasLength(1));
+      expect(store.tasksForDate(DateTime(2026, 10, 15)), isEmpty);
+      expect(store.tasksForDate(domingo), isEmpty);
+      expect(store.tasksForDate(segundaSeguinte), isEmpty);
+      expect(store.tasksForDate(DateTime(2026, 10, 21)), isEmpty);
+    });
+
+    test('lembrete único continua visível na data ao voltar semanas', () async {
+      final store = HabitexStore(onChanged: () {});
+
+      await store.addTask('Pagar conta', quarta);
+
+      // Navegando para trás a partir da semana seguinte.
+      final voltandoUmaSemana = DateTime(
+        2026,
+        10,
+        21,
+      ).subtract(const Duration(days: 7));
+      expect(store.tasksForDate(voltandoUmaSemana).single.text, 'Pagar conta');
+    });
+
+    test('lembrete recorrente de segunda aparece toda segunda', () async {
+      final store = HabitexStore(onChanged: () {});
+      final segunda = DateTime(2026, 10, 12);
+
+      await store.saveReminder(
+        RoutineTask(
+          id: 'academia',
+          text: 'Academia',
+          startDate: segunda,
+          recurring: true,
+          recurrenceDays: const ['seg'],
+        ),
+      );
+
+      expect(store.tasksForDate(segunda), hasLength(1));
+      expect(store.tasksForDate(segundaSeguinte), hasLength(1));
+      expect(store.tasksForDate(DateTime(2026, 10, 26)), hasLength(1));
+      expect(store.tasksForDate(quarta), isEmpty);
+    });
+
+    test('lembrete único editado para recorrente passa a repetir', () async {
+      final store = HabitexStore(onChanged: () {});
+      await store.addTask('Ler', sabado);
+      final task = store.tasksForDate(sabado).single;
+
+      await store.saveReminder(
+        task.copyWith(recurring: true, recurrenceDays: const ['sab']),
+      );
+
+      expect(store.tasksForDate(DateTime(2026, 10, 24)).single.id, task.id);
+    });
+
+    test('tarefa rápida antiga vira lembrete único sem perder dados', () async {
+      final criadaEm = DateTime(2026, 10, 13, 9);
+      final id = '${criadaEm.microsecondsSinceEpoch}qua';
+      SharedPreferences.setMockInitialValues({
+        'habitex.tasksByDay': jsonEncode({
+          'qua': [
+            {'id': id, 'text': 'Tarefa antiga'},
+            {'id': 'legacy', 'text': 'Sem id de tarefa rápida'},
+          ],
+        }),
+      });
+      final store = HabitexStore(onChanged: () {});
+
+      await store.load();
+
+      expect(store.tasksByDay['qua'], hasLength(2));
+      final migrated = store.tasksByDay['qua']!.firstWhere((t) => t.id == id);
+      expect(migrated.text, 'Tarefa antiga');
+      expect(migrated.recurring, isFalse);
+      expect(migrated.startDate, quarta);
+      expect(
+        store.tasksForDate(quarta).map((t) => t.id),
+        containsAll([id, 'legacy']),
+      );
+      expect(store.tasksForDate(DateTime(2026, 10, 21)).map((t) => t.id), [
+        'legacy',
+      ]);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('habitex.tasksByDay'),
+        contains('"recurring":false'),
+      );
+    });
   });
 
   test(
@@ -763,10 +881,11 @@ void main() {
     expect(find.text('Estatísticas'), findsOneWidget);
     expect(find.text('Notificações'), findsOneWidget);
     expect(find.text('Exportar dados'), findsOneWidget);
-    expect(find.text('ASSINATURA'), findsOneWidget);
-    expect(find.text('Habitex Premium'), findsOneWidget);
-    expect(find.text('Conheça os benefícios'), findsOneWidget);
-    expect(find.text('Sair da conta'), findsOneWidget);
+    // Standby: Premium e "Sair da conta" ficam ocultos.
+    expect(find.text('ASSINATURA'), findsNothing);
+    expect(find.text('Habitex Premium'), findsNothing);
+    expect(find.text('Conheça os benefícios'), findsNothing);
+    expect(find.text('Sair da conta'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('sidebar-profile-header')));
     await tester.pumpAndSettle();
@@ -775,8 +894,9 @@ void main() {
     expect(find.text('INFORMAÇÕES PESSOAIS'), findsOneWidget);
     expect(find.text('Apelido'), findsOneWidget);
     expect(find.text('E-mail'), findsOneWidget);
-    expect(find.text('SEGURANÇA'), findsOneWidget);
-    expect(find.text('Alterar senha'), findsOneWidget);
+    // Standby: sem conta, a seção de senha fica oculta.
+    expect(find.text('SEGURANÇA'), findsNothing);
+    expect(find.text('Alterar senha'), findsNothing);
     final profileList = find.descendant(
       of: find.byKey(const ValueKey('full-page-Meu perfil')),
       matching: find.byType(ListView),
@@ -846,29 +966,31 @@ void main() {
     expect(prefs.getString('habitex.auth.apelido'), 'Jennifer');
   });
 
-  testWidgets('Profile password action stays visible on the blue button', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(loggedInPrefs());
-    final store = HabitexStore(onChanged: () {});
-    await store.load();
+  testWidgets(
+    'Profile password action stays visible on the blue button',
+    skip: !contasHabilitadas,
+    (tester) async {
+      SharedPreferences.setMockInitialValues(loggedInPrefs());
+      final store = HabitexStore(onChanged: () {});
+      await store.load();
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: ThemeData.dark(),
-        home: PerfilPage(store: store),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Alterar senha'));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: PerfilPage(store: store),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alterar senha'));
+      await tester.pumpAndSettle();
 
-    final actionLabels = tester.widgetList<Text>(find.text('Alterar senha'));
-    expect(
-      actionLabels.any((label) => label.style?.color == Colors.white),
-      isTrue,
-    );
-  });
+      final actionLabels = tester.widgetList<Text>(find.text('Alterar senha'));
+      expect(
+        actionLabels.any((label) => label.style?.color == Colors.white),
+        isTrue,
+      );
+    },
+  );
 
   test(
     'AuthService updates profile identity and validates password change',
@@ -1216,6 +1338,10 @@ void main() {
       expect(find.byKey(const ValueKey('habitex-sidebar')), findsOneWidget);
     }
 
+    if (!contasHabilitadas) {
+      expect(find.text('Habitex Premium'), findsNothing);
+      return;
+    }
     await tester.tap(find.text('Habitex Premium'));
     await tester.pumpAndSettle();
     expect(find.text('Habitex Premium'), findsOneWidget);
@@ -1227,43 +1353,45 @@ void main() {
     expect(find.byKey(const ValueKey('habitex-sidebar')), findsOneWidget);
   });
 
-  testWidgets('Sidebar asks before logout and keeps local user data', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(
-      loggedInPrefs({
-        'habitex.notes': jsonEncode([
-          {
-            'id': 'nota-local',
-            'title': 'Preservada',
-            'body': 'Conteúdo',
-            'updatedAt': DateTime.now().toIso8601String(),
-          },
-        ]),
-      }),
-    );
-    await pumpHabitexApp(tester);
-    await tester.tap(find.byKey(const ValueKey('open-profile-sidebar')));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'Sidebar asks before logout and keeps local user data',
+    skip: !contasHabilitadas,
+    (tester) async {
+      SharedPreferences.setMockInitialValues(
+        loggedInPrefs({
+          'habitex.notes': jsonEncode([
+            {
+              'id': 'nota-local',
+              'title': 'Preservada',
+              'body': 'Conteúdo',
+              'updatedAt': DateTime.now().toIso8601String(),
+            },
+          ]),
+        }),
+      );
+      await pumpHabitexApp(tester);
+      await tester.tap(find.byKey(const ValueKey('open-profile-sidebar')));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Sair da conta'));
-    await tester.pumpAndSettle();
-    expect(find.text('Deseja realmente sair da sua conta?'), findsOneWidget);
-    await tester.tap(find.text('Cancelar'));
-    await tester.pumpAndSettle();
-    var prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('habitex.auth.logado'), isTrue);
+      await tester.tap(find.text('Sair da conta'));
+      await tester.pumpAndSettle();
+      expect(find.text('Deseja realmente sair da sua conta?'), findsOneWidget);
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('habitex.auth.logado'), isTrue);
 
-    await tester.tap(find.text('Sair da conta'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sair'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Sair da conta'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sair'));
+      await tester.pumpAndSettle();
 
-    prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('habitex.auth.logado'), isFalse);
-    expect(prefs.getString('habitex.notes'), isNotNull);
-    expect(find.text('HABITEX'), findsOneWidget);
-  });
+      prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('habitex.auth.logado'), isFalse);
+      expect(prefs.getString('habitex.notes'), isNotNull);
+      expect(find.text('HABITEX'), findsOneWidget);
+    },
+  );
 
   testWidgets('Sidebar remains scrollable on a small phone', (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -1280,9 +1408,26 @@ void main() {
     );
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -260));
     await tester.pumpAndSettle();
-    expect(find.text('Sair da conta'), findsOneWidget);
+    expect(
+      find.text(contasHabilitadas ? 'Sair da conta' : 'Exportar dados'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'App abre direto no Perfil sem login enquanto contas em standby',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const HabitexApp());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.byType(SplashPage), findsNothing);
+      expect(find.byType(PerfilDashboardPage), findsOneWidget);
+    },
+    skip: contasHabilitadas,
+  );
 
   testWidgets('Habitex deletes a note after a long press', (tester) async {
     SharedPreferences.setMockInitialValues(

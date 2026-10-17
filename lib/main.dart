@@ -53,6 +53,10 @@ const iosRed = HabitexColors.error;
 const calendarFree = HabitexColors.surfaceElevated;
 const habitsSchemaVersion = 2;
 
+// Standby: login, cadastro e Habitex Premium ficam ocultos até a validação
+// com usuários. Troque para true para reativar essas telas.
+const contasHabilitadas = false;
+
 enum AppTab { perfil, lembretes, habitos, notas }
 
 class HabitexApp extends StatefulWidget {
@@ -96,10 +100,12 @@ class _HabitexAppState extends State<HabitexApp> {
       title: 'Habitex',
       themeMode: ThemeMode.dark,
       darkTheme: habitexDarkTheme(),
-      home: SplashPage(
-        app: HabitexHome(store: store, loaded: loaded),
-        onAuthenticated: _syncAuthenticatedUser,
-      ),
+      home: contasHabilitadas
+          ? SplashPage(
+              app: HabitexHome(store: store, loaded: loaded),
+              onAuthenticated: _syncAuthenticatedUser,
+            )
+          : HabitexHome(store: store, loaded: loaded),
     );
   }
 }
@@ -205,6 +211,7 @@ class HabitexStore {
       _prefs?.getString('habitex.taskCompletions'),
     );
     await _migrateLegacyTaskCompletions();
+    await _migrateLegacyQuickTasks();
     notes = _decodeNotes(_prefs?.getString('habitex.notes'));
     profile = UserProfile.fromPrefs(_prefs);
     themeMode = ThemeMode.dark;
@@ -316,24 +323,45 @@ class HabitexStore {
     );
   }
 
-  Future<void> addTask(String text, List<String> days) async {
-    for (final day in days) {
-      tasksByDay[day] = [
-        ...tasksByDay[day] ?? [],
-        RoutineTask(
-          id: DateTime.now().microsecondsSinceEpoch.toString() + day,
-          text: text,
-        ),
-      ];
-    }
-    _notifyChanged();
-    await _save(
-      'habitex.tasksByDay',
-      tasksByDay.map(
-        (key, value) =>
-            MapEntry(key, value.map((task) => task.toJson()).toList()),
+  // Tarefa rápida: sempre cria lembrete único, visível só na data escolhida.
+  // Recorrência só pelo formulário "Novo lembrete" ou editando o item.
+  Future<void> addTask(String text, DateTime date) async {
+    final day = dayId(date);
+    final now = DateTime.now();
+    tasksByDay[day] = [
+      ...tasksByDay[day] ?? [],
+      RoutineTask(
+        id: now.microsecondsSinceEpoch.toString() + day,
+        text: text,
+        startDate: DateTime(date.year, date.month, date.day),
+        recurring: false,
+        recurrenceDays: const [],
+        createdAt: now,
+        updatedAt: now,
       ),
-    );
+    ];
+    _notifyChanged();
+    await _saveTasks();
+  }
+
+  // Tarefas rápidas antigas eram salvas como recorrentes e sem data.
+  // Converte em lembrete único na data derivada do id, sem apagar nada.
+  Future<void> _migrateLegacyQuickTasks() async {
+    var changed = false;
+    tasksByDay = tasksByDay.map((day, tasks) {
+      final migrated = tasks.map((task) {
+        final date = legacyQuickTaskDate(task, day);
+        if (date == null) return task;
+        changed = true;
+        return task.copyWith(
+          startDate: date,
+          recurring: false,
+          recurrenceDays: const [],
+        );
+      }).toList();
+      return MapEntry(day, migrated);
+    });
+    if (changed) await _saveTasks();
   }
 
   Future<void> toggleTask(String day, String id) async {
@@ -1661,23 +1689,9 @@ class _RotinaPageState extends State<RotinaPage> {
     DateTime.now().month,
     DateTime.now().day,
   );
-  late List<String> targetDays = [dayId(selectedDate)];
   final taskController = TextEditingController();
-  bool showOptions = false;
 
   String get selectedDay => dayId(selectedDate);
-
-  WeekDay get selectedWeekDay =>
-      weekDays.firstWhere((day) => day.id == selectedDay);
-
-  String get targetDaysLabel {
-    if (targetDays.length == weekDays.length) return 'Semana';
-    if (targetDays.isEmpty) return selectedWeekDay.short;
-    if (targetDays.length == 1) {
-      return weekDays.firstWhere((day) => day.id == targetDays.first).short;
-    }
-    return '${targetDays.length} dias';
-  }
 
   @override
   void dispose() {
@@ -1688,12 +1702,8 @@ class _RotinaPageState extends State<RotinaPage> {
   Future<void> addTask() async {
     final text = taskController.text.trim();
     if (text.isEmpty) return;
-    await widget.store.addTask(
-      text,
-      targetDays.isEmpty ? [selectedDay] : targetDays,
-    );
+    await widget.store.addTask(text, selectedDate);
     taskController.clear();
-    setState(() => showOptions = false);
   }
 
   Future<void> openReminderForm([RoutineTask? task]) async {
@@ -1762,7 +1772,6 @@ class _RotinaPageState extends State<RotinaPage> {
               padding: EdgeInsets.zero,
               onPressed: () => setState(() {
                 selectedDate = selectedDate.subtract(const Duration(days: 7));
-                targetDays = [selectedDay];
               }),
               child: const Icon(CupertinoIcons.chevron_left, size: 17),
             ),
@@ -1773,7 +1782,6 @@ class _RotinaPageState extends State<RotinaPage> {
                   selected: isSameDate(date, selectedDate),
                   onTap: () => setState(() {
                     selectedDate = date;
-                    targetDays = [dayId(date)];
                   }),
                 ),
               ),
@@ -1782,7 +1790,6 @@ class _RotinaPageState extends State<RotinaPage> {
               padding: EdgeInsets.zero,
               onPressed: () => setState(() {
                 selectedDate = selectedDate.add(const Duration(days: 7));
-                targetDays = [selectedDay];
               }),
               child: const Icon(CupertinoIcons.chevron_right, size: 17),
             ),
@@ -1833,36 +1840,6 @@ class _RotinaPageState extends State<RotinaPage> {
                     ),
                   ),
                   CupertinoButton(
-                    minimumSize: const Size(82, 36),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(20),
-                    onPressed: () => setState(() => showOptions = !showOptions),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          CupertinoIcons.calendar,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          targetDaysLabel,
-                          style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
                     minimumSize: const Size(36, 36),
                     padding: EdgeInsets.zero,
                     color: iosBlue,
@@ -1876,64 +1853,6 @@ class _RotinaPageState extends State<RotinaPage> {
                   ),
                 ],
               ),
-              if (showOptions) ...[
-                const Divider(height: 18),
-                Row(
-                  children: [
-                    Text(
-                      'Adicionar em',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    CupertinoButton(
-                      minimumSize: const Size(32, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(16),
-                      onPressed: () => setState(
-                        () =>
-                            targetDays = weekDays.map((day) => day.id).toList(),
-                      ),
-                      child: Text(
-                        'Repetir semana',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final day in weekDays)
-                      DayChip(
-                        label: day.short,
-                        selected: targetDays.contains(day.id),
-                        compact: true,
-                        onTap: () {
-                          setState(() {
-                            targetDays = targetDays.contains(day.id)
-                                ? targetDays
-                                      .where((id) => id != day.id)
-                                      .toList()
-                                : [...targetDays, day.id];
-                          });
-                        },
-                      ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
@@ -2822,20 +2741,22 @@ class _DadosGeraisMenuState extends State<DadosGeraisMenu> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-                const SidebarSectionTitle('ASSINATURA'),
-                const SizedBox(height: 8),
-                IosCard(
-                  padding: EdgeInsets.zero,
-                  child: DadosGeraisTile(
-                    icon: CupertinoIcons.sparkles,
-                    title: 'Habitex Premium',
-                    subtitle: 'Conheça os benefícios',
-                    onTap: () => openPage(context, const AssinaturaPage()),
+                if (contasHabilitadas) ...[
+                  const SizedBox(height: 24),
+                  const SidebarSectionTitle('ASSINATURA'),
+                  const SizedBox(height: 8),
+                  IosCard(
+                    padding: EdgeInsets.zero,
+                    child: DadosGeraisTile(
+                      icon: CupertinoIcons.sparkles,
+                      title: 'Habitex Premium',
+                      subtitle: 'Conheça os benefícios',
+                      onTap: () => openPage(context, const AssinaturaPage()),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 18),
-                SidebarLogoutButton(onPressed: () => confirmLogout(context)),
+                  const SizedBox(height: 18),
+                  SidebarLogoutButton(onPressed: () => confirmLogout(context)),
+                ],
               ],
             ),
           ),
@@ -3444,26 +3365,28 @@ class _PerfilPageState extends State<PerfilPage> {
               ],
             ),
           ),
-          const SizedBox(height: 26),
-          const ProfileSectionHeader('SEGURANÇA'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: ProfileNavigationTile(
-              icon: CupertinoIcons.lock,
-              title: 'Alterar senha',
-              subtitle: 'Gerencie a segurança da sua conta',
-              onTap: () => showModalBottomSheet<void>(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => const ChangePasswordBottomSheet(),
+          if (contasHabilitadas) ...[
+            const SizedBox(height: 26),
+            const ProfileSectionHeader('SEGURANÇA'),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: ProfileNavigationTile(
+                icon: CupertinoIcons.lock,
+                title: 'Alterar senha',
+                subtitle: 'Gerencie a segurança da sua conta',
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const ChangePasswordBottomSheet(),
+                ),
               ),
             ),
-          ),
+          ],
           const SizedBox(height: 26),
           const ProfileSectionHeader('CONTA'),
           const SizedBox(height: 8),
@@ -8793,6 +8716,22 @@ List<String> _decodeStringList(String? value) {
 
 String dayId(DateTime date) =>
     ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.weekday % 7];
+
+// Identifica tarefa rápida antiga (sem data, id = microssegundos + dia) e
+// retorna a data daquele dia na semana (seg a dom) em que foi criada.
+DateTime? legacyQuickTaskDate(RoutineTask task, String day) {
+  if (task.startDate != null || task.createdAt != null || !task.recurring) {
+    return null;
+  }
+  final match = RegExp(
+    r'^(\d+)(dom|seg|ter|qua|qui|sex|sab)$',
+  ).firstMatch(task.id);
+  if (match == null || match.group(2) != day) return null;
+  final micros = int.tryParse(match.group(1)!);
+  if (micros == null) return null;
+  final created = DateTime.fromMicrosecondsSinceEpoch(micros);
+  return currentWeekDates(created).firstWhere((date) => dayId(date) == day);
+}
 
 String dateKey(DateTime date) {
   final month = date.month.toString().padLeft(2, '0');
